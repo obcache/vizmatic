@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-muvid renderer CLI
+vizmatic renderer CLI
 
 Reads a project JSON description and renders a composed MP4 via ffmpeg.
 MVP pipeline:
@@ -8,7 +8,7 @@ MVP pipeline:
   2) If an audio file is provided, mux it with the concatenated video (shortest wins)
 
 Environment overrides:
-  muvid_FFMPEG  -> absolute path to ffmpeg binary (default: ffmpeg on PATH)
+  vizmatic_FFMPEG  -> absolute path to ffmpeg binary (default: ffmpeg on PATH)
 
 Usage:
   python renderer/python/main.py <path/to/project.json>
@@ -45,12 +45,12 @@ def which(cmd: str) -> Optional[str]:
 
 
 def ffmpeg_exe() -> str:
-    exe = os.environ.get("muvid_FFMPEG") or "ffmpeg"
+    exe = os.environ.get("vizmatic_FFMPEG") or "ffmpeg"
     return exe
 
 
 def ffprobe_exe() -> str:
-    override = os.environ.get("muvid_FFPROBE")
+    override = os.environ.get("vizmatic_FFPROBE")
     if override:
         return override
     ff = ffmpeg_exe()
@@ -71,7 +71,7 @@ def ffprobe_exe() -> str:
 def check_ffmpeg() -> bool:
     exe = ffmpeg_exe()
     if not which(exe):
-        eprint("[renderer] ffmpeg not found on PATH; set muvid_FFMPEG or bundle ffmpeg.")
+        eprint("[renderer] ffmpeg not found on PATH; set vizmatic_FFMPEG or bundle ffmpeg.")
         return False
     try:
         subprocess.run([exe, "-hide_banner", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -87,7 +87,7 @@ def run_ffmpeg(args: List[str], with_progress: bool = True) -> int:
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     except FileNotFoundError:
-        eprint("[renderer] ffmpeg not found. Set muvid_FFMPEG.")
+        eprint("[renderer] ffmpeg not found. Set vizmatic_FFMPEG.")
         return 127
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -96,7 +96,7 @@ def run_ffmpeg(args: List[str], with_progress: bool = True) -> int:
 
 
 def ensure_tmp_dir(base: str) -> str:
-    d = os.path.join(base, "muvid")
+    d = os.path.join(base, "vizmatic")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -220,11 +220,77 @@ def render_clip_segment(work_dir: str, clip: Dict[str, Any], idx: int) -> str:
     trim_end = clip.get("trimEnd")
     trim_end_val = float(trim_end) if trim_end is not None else None
     duration = float(clip.get("duration") or 0)
+    fill_method = str(clip.get("fillMethod") or "loop").lower()
     seg_len = None
     if trim_end_val is not None:
         seg_len = max(0.0, trim_end_val - trim_start)
-    loop = bool(seg_len and duration > seg_len + 0.01)
+    loop = bool(seg_len and duration > seg_len + 0.01 and fill_method == "loop")
     out_path = os.path.join(work_dir, f"clip_{idx:04d}.mp4")
+
+    if fill_method == "pingpong" and seg_len:
+        cycle_path = os.path.join(work_dir, f"clip_{idx:04d}_pp.mp4")
+        chain = build_clip_filter_chain(clip)
+        trim_expr = f"trim=start={trim_start:.3f}:end={trim_end_val:.3f}"
+        base_chain = f"{trim_expr},setpts=PTS-STARTPTS"
+        if chain:
+            base_chain = f"{base_chain},{chain}"
+        filter_complex = f"[0:v]{base_chain}[f];[f]reverse,setpts=PTS-STARTPTS[r];[f][r]concat=n=2:v=1:a=0[v]"
+        args = [
+            "-hide_banner",
+            "-y",
+            "-nostats",
+            "-progress",
+            "pipe:1",
+            "-i",
+            path,
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[v]",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            cycle_path,
+        ]
+        code = run_ffmpeg(args)
+        if code != 0:
+            raise RuntimeError(f"Clip render failed ({code})")
+
+        cycle_len = seg_len * 2.0
+        args = [
+            "-hide_banner",
+            "-y",
+            "-nostats",
+            "-progress",
+            "pipe:1",
+        ]
+        if duration > cycle_len + 0.01:
+            args += ["-stream_loop", "-1"]
+        args += ["-i", cycle_path]
+        if duration > 0:
+            args += ["-t", f"{duration:.3f}"]
+        args += [
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            out_path,
+        ]
+        code = run_ffmpeg(args)
+        if code != 0:
+            raise RuntimeError(f"Clip render failed ({code})")
+        return out_path
     args = [
         "-hide_banner",
         "-y",
@@ -243,6 +309,13 @@ def render_clip_segment(work_dir: str, clip: Dict[str, Any], idx: int) -> str:
         args += ["-t", f"{duration:.3f}"]
     args += ["-an"]
     chain = build_clip_filter_chain(clip)
+    if fill_method == "stretch" and seg_len and duration > 0:
+        try:
+            ratio = max(0.05, float(duration) / float(seg_len))
+            stretch = f"setpts=PTS*{ratio:.6f}"
+            chain = f"{chain},{stretch}" if chain else stretch
+        except Exception:
+            pass
     if chain:
         args += ["-vf", chain]
     args += [
@@ -629,7 +702,7 @@ def main(argv: List[str]) -> int:
     if total_ms > 0:
         print(f"total_duration_ms={total_ms}")
 
-    work_dir = ensure_tmp_dir(os.path.join(os.path.dirname(project_path), ".muvid"))
+    work_dir = ensure_tmp_dir(os.path.join(os.path.dirname(project_path), ".vizmatic"))
     clip_jobs: List[Dict[str, Any]] = []
     cursor = 0.0
     for idx, c in enumerate(clip_entries):
@@ -655,6 +728,10 @@ def main(argv: List[str]) -> int:
             duration_val = max(0.05, float(duration))
         except Exception:
             duration_val = 0.05
+        if trim_end_val is None:
+            d = ffprobe_duration_ms(path)
+            if d is not None:
+                trim_end_val = max(trim_start, d / 1000.0)
         start_val = c.get("start")
         if isinstance(start_val, (int, float)):
             start_val = max(cursor, float(start_val))
@@ -666,6 +743,7 @@ def main(argv: List[str]) -> int:
             "duration": duration_val,
             "trimStart": trim_start,
             "trimEnd": trim_end_val,
+            "fillMethod": c.get("fillMethod") or "loop",
             "hue": c.get("hue"),
             "contrast": c.get("contrast"),
             "brightness": c.get("brightness"),

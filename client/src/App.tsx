@@ -20,6 +20,7 @@ import {
   chooseRenderOutput,
   prepareRenderProject,
   getDefaultProjectPath,
+  setLayerMoveEnabled,
   saveProject,
   loadMediaLibrary,
   saveMediaLibrary as persistMediaLibrary,
@@ -40,11 +41,20 @@ import type { ProjectSchema, LayerConfig, LayerType } from 'common/project';
 import type { MediaLibraryItem } from 'common/project';
 type Theme = 'dark' | 'light' | 'auto';
 type WebAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
+type LicensePayload = {
+  name?: string;
+  email?: string;
+  edition?: string;
+  issuedAt?: number;
+  expiresAt?: number | null;
+  machineId?: string;
+};
 type ClipEdit = {
   timelineStart?: number;
   trimStart?: number;
   trimEnd?: number;
   duration?: number;
+  fillMethod?: 'loop' | 'pingpong' | 'stretch';
   hue?: number;
   contrast?: number;
   brightness?: number;
@@ -86,6 +96,70 @@ type LayerDraft = Partial<LayerConfig> & {
   opacityMax?: number;
   audioResponsive?: boolean;
   particleCount?: number;
+};
+
+const LICENSE_PUBLIC_KEY_JWK: JsonWebKey = {
+  "kty": "EC",
+  "x": "lp5m6hpsccQJTvvEGm-N_NTo0K0t-NgKkB7M0fTFAJ4",
+  "y": "F7TMKrQqkuZcPA__LRejbn8JbpbChchfCNdZRy9Ml5o",
+  "crv": "P-256"
+}
+const base64UrlToUint8 = (input: string): Uint8Array => {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = normalized.length % 4 === 2 ? '==' : normalized.length % 4 === 3 ? '=' : normalized.length % 4 === 1 ? '===' : '';
+  const str = atob(normalized + pad);
+  const out = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) out[i] = str.charCodeAt(i);
+  return out;
+};
+
+const derToRawEcdsa = (derSig: Uint8Array, size: number): Uint8Array | null => {
+  if (derSig.length < 8 || derSig[0] !== 0x30) return null;
+  let offset = 2;
+  if (derSig[1] & 0x80) {
+    const lenBytes = derSig[1] & 0x7f;
+    offset = 2 + lenBytes;
+  }
+  if (derSig[offset] !== 0x02) return null;
+  const rLen = derSig[offset + 1];
+  const rStart = offset + 2;
+  const rEnd = rStart + rLen;
+  if (derSig[rEnd] !== 0x02) return null;
+  const sLen = derSig[rEnd + 1];
+  const sStart = rEnd + 2;
+  const sEnd = sStart + sLen;
+  if (sEnd > derSig.length) return null;
+  const r = derSig.slice(rStart, rEnd);
+  const s = derSig.slice(sStart, sEnd);
+  const out = new Uint8Array(size * 2);
+  const rTrim = r[0] === 0x00 ? r.slice(1) : r;
+  const sTrim = s[0] === 0x00 ? s.slice(1) : s;
+  if (rTrim.length > size || sTrim.length > size) return null;
+  out.set(rTrim, size - rTrim.length);
+  out.set(sTrim, size * 2 - sTrim.length);
+  return out;
+};
+
+const importLicensePublicKey = async () => {
+  if (!LICENSE_PUBLIC_KEY_JWK?.x || !LICENSE_PUBLIC_KEY_JWK?.y) {
+    throw new Error('License public key not configured.');
+  }
+  return crypto.subtle.importKey(
+    'jwk',
+    LICENSE_PUBLIC_KEY_JWK,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['verify'],
+  );
+};
+
+const parseLicensePayload = (bytes: Uint8Array): LicensePayload | null => {
+  try {
+    const text = new TextDecoder().decode(bytes);
+    return JSON.parse(text) as LicensePayload;
+  } catch {
+    return null;
+  }
 };
 
 type Particle = {
@@ -136,6 +210,40 @@ const FONT_FACE_OPTIONS = [
   'Essen-Italic',
   'Essere',
   'Essere-Italic',
+  'Rabbit',
+  'Racepod',
+  'Raffas',
+  'Sans Sample',
+  'Santa Jolly',
+  'Snowman Handmade',
+  'Starlight',
+  'Strong Farmhouse',
+  'Thicksnow',
+  'Time Work',
+  'Unique Quotes',
+  'Vandalrush',
+  'Vintage School',
+  'Winter Tosca',
+  'Zunka Demo',
+  'Agekia',
+  'Banana Amsterdam',
+  'Beige',
+  'Blackfang',
+  'Boho Christmas',
+  'Brittney Script',
+  'Cheesecake',
+  'Clairo Sans',
+  'Creative',
+  'Eighty Free',
+  'Enjoy Little Things',
+  'I Love Father',
+  'Incredible',
+  'Innerline',
+  'Kilon',
+  'Love Flowers',
+  'Metro City',
+  'Modern Future',
+  'Online',
 ];
 
 const App = () => {
@@ -159,21 +267,36 @@ const App = () => {
   const [layerDialogOpen, setLayerDialogOpen] = useState<boolean>(false);
   const [layerDraft, setLayerDraft] = useState<LayerDraft>({});
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [layerDragId, setLayerDragId] = useState<string | null>(null);
   const [timelineZoom, setTimelineZoom] = useState<number>(1);
   const [timelineScroll, setTimelineScroll] = useState<number>(0);
   const layers = useMemo(() => session.layers ?? [], [session.layers]);
   const selectedLayer = useMemo(() => layers.find((layer) => layer.id === selectedLayerId) ?? null, [layers, selectedLayerId]);
+  useEffect(() => {
+    const idx = selectedLayerId ? layers.findIndex((layer) => layer.id === selectedLayerId) : -1;
+    const upEnabled = idx > 0;
+    const downEnabled = idx >= 0 && idx < layers.length - 1;
+    try {
+      setLayerMoveEnabled({ up: upEnabled, down: downEnabled });
+    } catch {}
+  }, [layers, selectedLayerId]);
   const hasAudio = !!session.audioPath;
   const workflowLocked = !hasAudio;
   const renderLocked = isRendering;
+  const renderSectionLocked = workflowLocked || renderLocked;
   const canvasSize = useMemo(() => (
     canvasPreset === 'portrait'
       ? { width: 1080, height: 1920 }
       : { width: 1920, height: 1080 }
   ), [canvasPreset]);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
+  const previewVideoElRef = useRef<HTMLVideoElement | null>(null);
   const previewResizeRef = useRef<{ startY: number; startH: number } | null>(null);
   const previewSizeRef = useRef<{ w: number; h: number; dpr: number } | null>(null);
+  const previewVideoFrameRef = useRef<HTMLCanvasElement | null>(null);
+  const previewVideoFrameMetaRef = useRef<{ path: string; time: number } | null>(null);
+  const [previewContainerWidth, setPreviewContainerWidth] = useState<number>(0);
   const appRootRef = useRef<HTMLDivElement | null>(null);
   const videoPoolRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const imagePoolRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -209,7 +332,7 @@ const App = () => {
   });
   const [licenseStatus, setLicenseStatus] = useState<{ licensed: boolean; key?: string; activatedAt?: string; name?: string; email?: string }>(() => {
     try {
-      const raw = localStorage.getItem('muvid:license');
+      const raw = localStorage.getItem('vizmatic:license');
       if (raw) {
         const parsed = JSON.parse(raw) as { licensed?: boolean; key?: string; activatedAt?: string; name?: string; email?: string };
         return { licensed: !!parsed.licensed, key: parsed.key, activatedAt: parsed.activatedAt, name: parsed.name, email: parsed.email };
@@ -224,6 +347,7 @@ const App = () => {
   const [activationSuccessOpen, setActivationSuccessOpen] = useState(false);
   const [activationInfoOpen, setActivationInfoOpen] = useState(false);
   const [machineId, setMachineId] = useState<string>('');
+  const [machineIdModalOpen, setMachineIdModalOpen] = useState(false);
   const isLicensed = licenseStatus.licensed;
   const loadLibrary = useCallback(async () => {
     try {
@@ -317,7 +441,7 @@ const App = () => {
   
   const applyTheme = useCallback((name: Theme, resolved: Exclude<Theme, 'auto'>) => {
     try {
-      localStorage.setItem('muvid:theme', name);
+      localStorage.setItem('vizmatic:theme', name);
     } catch {}
     document.documentElement.setAttribute('data-theme', resolved);
   }, []);
@@ -326,7 +450,7 @@ const App = () => {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('muvid:theme');
+      const saved = localStorage.getItem('vizmatic:theme');
       if (saved === 'light' || saved === 'dark' || saved === 'auto') {
         setThemeChoice(saved);
         return;
@@ -341,7 +465,7 @@ const App = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem('muvid:license', JSON.stringify(licenseStatus));
+      localStorage.setItem('vizmatic:license', JSON.stringify(licenseStatus));
     } catch {}
   }, [licenseStatus]);
 
@@ -351,6 +475,13 @@ const App = () => {
       setLicenseError(null);
     }
   }, [licenseModalOpen, licenseStatus.key]);
+
+  useEffect(() => {
+    if (!licenseModalOpen) return;
+    void getMachineFingerprint().then((id: string) => {
+      if (typeof id === 'string') setMachineId(id);
+    }).catch(() => {});
+  }, [licenseModalOpen]);
 
   useEffect(() => {
     if (!activationInfoOpen) return;
@@ -804,6 +935,12 @@ const App = () => {
         case 'layer:addText':
           startNewLayer('text');
           break;
+        case 'layer:moveUp':
+          if (selectedLayerId) moveLayerBy(selectedLayerId, -1);
+          break;
+        case 'layer:moveDown':
+          if (selectedLayerId) moveLayerBy(selectedLayerId, 1);
+          break;
         case 'view:zoomIn':
           setTimelineZoom((z) => Math.min(8, z * 2));
           setTimelineScroll(0);
@@ -829,7 +966,7 @@ const App = () => {
           setThemeChoice('auto');
           break;
         case 'help:about':
-          setStatus('muvid - music visualizer generator');
+          setStatus('vizmatic - music visualizer generator');
           break;
         case 'help:activation':
           setActivationInfoOpen(true);
@@ -1045,9 +1182,10 @@ const App = () => {
     }
   };
 
-  const validateLicenseKey = (key: string) => {
-    const normalized = key.trim().toUpperCase();
-    return /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(normalized);
+  const extractLicenseToken = (key: string) => {
+    const trimmed = key.trim();
+    const match = trimmed.match(/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+    return match ? match[0] : '';
   };
 
   const ensureLicensed = useCallback(() => {
@@ -1059,21 +1197,72 @@ const App = () => {
   }, [isLicensed]);
 
   const handleValidateLicense = async () => {
-    const trimmed = licenseKeyInput.trim();
-    if (!validateLicenseKey(trimmed)) {
-      setLicenseError('Invalid product key format. Use XXXX-XXXX-XXXX-XXXX.');
+    const trimmed = extractLicenseToken(licenseKeyInput);
+    if (!trimmed) {
+      setLicenseError('Invalid license format.');
       return;
     }
-    setLicenseStatus({ licensed: true, key: trimmed, activatedAt: new Date().toISOString() });
-    setLicenseError(null);
-    setLicenseModalOpen(false);
-    setActivationSuccessOpen(true);
-    setStatus('License activated');
+    const [payloadB64, sigB64] = trimmed.split('.');
+    if (!payloadB64 || !sigB64) {
+      setLicenseError('Invalid license format.');
+      return;
+    }
+    try {
+      const payloadBytes = base64UrlToUint8(payloadB64);
+      const payloadView = new Uint8Array(payloadBytes);
+      const payload = parseLicensePayload(payloadView);
+      if (!payload) {
+        setLicenseError('License payload is invalid.');
+        return;
+      }
+      const publicKey = await importLicensePublicKey();
+      const signatureDer = base64UrlToUint8(sigB64);
+      const signatureRaw = signatureDer.length === 64 ? signatureDer : derToRawEcdsa(signatureDer, 32);
+      if (!signatureRaw) {
+        setLicenseError('Invalid license signature.');
+        return;
+      }
+      const signatureBytes = new Uint8Array(signatureRaw);
+      const ok = await crypto.subtle.verify(
+        { name: 'ECDSA', hash: 'SHA-256' },
+        publicKey,
+        signatureBytes,
+        payloadView,
+      );
+      if (!ok) {
+        setLicenseError('License signature failed verification.');
+        return;
+      }
+      const machineId = (await getMachineFingerprint()).trim();
+      const payloadMachine = String(payload.machineId ?? '').trim();
+      if (!payloadMachine || payloadMachine.toLowerCase() !== machineId.toLowerCase()) {
+        setLicenseError('License does not match this machine.');
+        return;
+      }
+      if (payload.expiresAt && Date.now() > payload.expiresAt) {
+        setLicenseError('License has expired.');
+        return;
+      }
+      const activatedAt = payload.issuedAt ? new Date(payload.issuedAt).toISOString() : new Date().toISOString();
+      setLicenseStatus({
+        licensed: true,
+        key: trimmed,
+        activatedAt,
+        name: payload.name,
+        email: payload.email,
+      });
+      setLicenseError(null);
+      setLicenseModalOpen(false);
+      setActivationSuccessOpen(true);
+      setStatus('License activated');
+    } catch (err: unknown) {
+      setLicenseError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleUnlicense = () => {
     try {
-      localStorage.removeItem('muvid:license');
+      localStorage.removeItem('vizmatic:license');
     } catch {}
     setLicenseStatus({ licensed: false, key: '' });
     setStatus('License cleared');
@@ -1122,6 +1311,7 @@ const App = () => {
     return paths.map((path, index) => {
       const id = ids[index] || `${index}:${path}`;
       const edit = clipEdits[id] ?? {};
+      const fillMethod = (edit.fillMethod as ClipEdit['fillMethod']) ?? 'loop';
       const sourceDuration = videoDurations[path] ?? 0;
       const trimStart = Math.max(0, Number(edit.trimStart ?? 0));
       const trimEnd = Number.isFinite(edit.trimEnd as number)
@@ -1157,6 +1347,7 @@ const App = () => {
         trimStart,
         trimEnd,
         sourceDuration,
+        fillMethod,
         hue: edit.hue,
         contrast: edit.contrast,
         brightness: edit.brightness,
@@ -1185,6 +1376,7 @@ const App = () => {
       clip.trimStart = seg.trimStart;
       clip.trimEnd = seg.trimEnd;
       clip.duration = seg.duration;
+      if (seg.fillMethod) clip.fillMethod = seg.fillMethod;
       if (Number.isFinite(seg.hue as number)) clip.hue = seg.hue;
       if (Number.isFinite(seg.contrast as number)) clip.contrast = seg.contrast;
       if (Number.isFinite(seg.brightness as number)) clip.brightness = seg.brightness;
@@ -1224,6 +1416,7 @@ const App = () => {
       trimStart: seg.trimStart,
       trimEnd: seg.trimEnd,
       duration: seg.duration,
+      fillMethod: seg.fillMethod ?? 'loop',
       hue: Number.isFinite(seg.hue as number) ? seg.hue : 0,
       contrast: Number.isFinite(seg.contrast as number) ? seg.contrast : 1,
       brightness: Number.isFinite(seg.brightness as number) ? seg.brightness : 1,
@@ -1414,6 +1607,7 @@ const App = () => {
       duration,
       trimStart,
       trimEnd,
+      fillMethod: clipEditorDraft.fillMethod ?? 'loop',
       hue: Number(clipEditorDraft.hue ?? 0),
       contrast: Number(clipEditorDraft.contrast ?? 1),
       brightness: Number(clipEditorDraft.brightness ?? 1),
@@ -1457,6 +1651,7 @@ const App = () => {
           if (Number.isFinite(c?.trimStart)) edit.trimStart = Number(c.trimStart);
           if (Number.isFinite(c?.trimEnd)) edit.trimEnd = Number(c.trimEnd);
           if (Number.isFinite(c?.duration)) edit.duration = Number(c.duration);
+          if (typeof c?.fillMethod === 'string') edit.fillMethod = c.fillMethod;
           if (Number.isFinite(c?.start)) edit.timelineStart = Number(c.start);
           if (Number.isFinite(c?.hue)) edit.hue = Number(c.hue);
           if (Number.isFinite(c?.contrast)) edit.contrast = Number(c.contrast);
@@ -1568,6 +1763,36 @@ const App = () => {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  const moveLayerBy = useCallback((layerId: string, delta: number) => {
+    setSession((prev) => {
+      const current = prev.layers ?? [];
+      const idx = current.findIndex((layer) => layer.id === layerId);
+      if (idx < 0) return prev;
+      const nextIndex = Math.max(0, Math.min(current.length - 1, idx + delta));
+      if (nextIndex === idx) return prev;
+      const next = current.slice();
+      const [item] = next.splice(idx, 1);
+      next.splice(nextIndex, 0, item);
+      return { ...prev, layers: next };
+    });
+    void updateProjectDirty(true);
+  }, []);
+
+  const moveLayerToIndex = useCallback((layerId: string, index: number) => {
+    setSession((prev) => {
+      const current = prev.layers ?? [];
+      const idx = current.findIndex((layer) => layer.id === layerId);
+      if (idx < 0) return prev;
+      const nextIndex = Math.max(0, Math.min(current.length - 1, index));
+      if (nextIndex === idx) return prev;
+      const next = current.slice();
+      const [item] = next.splice(idx, 1);
+      next.splice(nextIndex, 0, item);
+      return { ...prev, layers: next };
+    });
+    void updateProjectDirty(true);
+  }, []);
 
   // Load video durations to scale storyboard items
   useEffect(() => {
@@ -1774,7 +1999,18 @@ const App = () => {
       if (playheadSec >= start && playheadSec <= end) {
         const rel = Math.max(0, playheadSec - start);
         const loopLen = Math.max(0.05, seg.trimmedLength || (seg.sourceDuration || 0));
-        const local = seg.trimStart + (loopLen > 0 ? (rel % loopLen) : 0);
+        const method = seg.fillMethod ?? 'loop';
+        let local = seg.trimStart;
+        if (method === 'stretch' && seg.duration > 0 && loopLen > 0) {
+          const pct = Math.min(1, rel / seg.duration);
+          local = seg.trimStart + (loopLen * pct);
+        } else if (method === 'pingpong' && loopLen > 0) {
+          const period = loopLen * 2;
+          const t = period > 0 ? (rel % period) : 0;
+          local = seg.trimStart + (t <= loopLen ? t : (period - t));
+        } else {
+          local = seg.trimStart + (loopLen > 0 ? (rel % loopLen) : 0);
+        }
         return { path: seg.path, local, duration: seg.duration };
       }
     }
@@ -1811,8 +2047,6 @@ const App = () => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, logicalW, logicalH);
-    ctx.fillStyle = '#0b0f16';
-    ctx.fillRect(0, 0, logicalW, logicalH);
 
     ctx.save();
     ctx.beginPath();
@@ -1820,7 +2054,13 @@ const App = () => {
     ctx.clip();
 
     const active = resolveActiveClip(session.playhead ?? 0);
-    if (active) {
+    const videoEl = previewVideoElRef.current;
+    const useVideoElement = !!videoEl;
+    if (!useVideoElement) {
+      ctx.fillStyle = '#0b0f16';
+      ctx.fillRect(0, 0, logicalW, logicalH);
+    }
+    if (active && !useVideoElement) {
       const vid = videoPoolRef.current.get(active.path);
       if (vid) {
         const targetTime = Math.min(Math.max(0, active.local), (vid.duration || active.duration || 0));
@@ -1830,23 +2070,91 @@ const App = () => {
         } else {
           seekOk = await new Promise<boolean>((resolve) => {
             const handler = () => resolve(true);
-            vid.currentTime = targetTime;
-            vid.addEventListener('seeked', handler, { once: true });
+            try {
+              vid.currentTime = targetTime;
+              vid.addEventListener('seeked', handler, { once: true });
+            } catch {
+              resolve(false);
+            }
             setTimeout(() => resolve(false), 500);
           });
         }
+        const drawFrame = (frameSource: CanvasImageSource) => {
+          const srcW = (frameSource as HTMLVideoElement).videoWidth
+            || (frameSource as HTMLCanvasElement).width
+            || (frameSource as HTMLImageElement).naturalWidth
+            || logicalW;
+          const srcH = (frameSource as HTMLVideoElement).videoHeight
+            || (frameSource as HTMLCanvasElement).height
+            || (frameSource as HTMLImageElement).naturalHeight
+            || logicalH;
+          const scale = Math.min(stageW / srcW, stageH / srcH);
+          const dw = srcW * scale;
+          const dh = srcH * scale;
+          const dx = stageX + (stageW - dw) / 2;
+          const dy = stageY + (stageH - dh) / 2;
+          ctx.drawImage(frameSource, dx, dy, dw, dh);
+        };
         if (seekOk) {
           try {
-            const vw = vid.videoWidth || logicalW;
-            const vh = vid.videoHeight || logicalH;
-            const scale = Math.min(stageW / vw, stageH / vh);
-            const dw = vw * scale;
-            const dh = vh * scale;
-            const dx = stageX + (stageW - dw) / 2;
-            const dy = stageY + (stageH - dh) / 2;
-            ctx.drawImage(vid, dx, dy, dw, dh);
+            let drew = false;
+            if ('requestVideoFrameCallback' in vid) {
+              (vid as any).requestVideoFrameCallback(() => {
+                try {
+                  const cache = previewVideoFrameRef.current ?? document.createElement('canvas');
+                  if (!previewVideoFrameRef.current) previewVideoFrameRef.current = cache;
+                  const cw = Math.max(1, vid.videoWidth || Math.floor(stageW));
+                  const ch = Math.max(1, vid.videoHeight || Math.floor(stageH));
+                  if (cache.width !== cw || cache.height !== ch) {
+                    cache.width = cw;
+                    cache.height = ch;
+                  }
+                  const cctx = cache.getContext('2d');
+                  if (cctx) {
+                    cctx.clearRect(0, 0, cache.width, cache.height);
+                    cctx.drawImage(vid, 0, 0, cache.width, cache.height);
+                    previewVideoFrameMetaRef.current = { path: active.path, time: targetTime };
+                  }
+                } catch {
+                  // ignore draw errors
+                }
+              });
+              const cache = previewVideoFrameRef.current;
+              const meta = previewVideoFrameMetaRef.current;
+              if (cache && meta?.path === active.path) {
+                drawFrame(cache);
+                drew = true;
+              }
+            }
+            if (!drew) {
+              drawFrame(vid);
+            }
+            const cache = previewVideoFrameRef.current ?? document.createElement('canvas');
+            if (!previewVideoFrameRef.current) previewVideoFrameRef.current = cache;
+            const cw = Math.max(1, vid.videoWidth || Math.floor(stageW));
+            const ch = Math.max(1, vid.videoHeight || Math.floor(stageH));
+            if (cache.width !== cw || cache.height !== ch) {
+              cache.width = cw;
+              cache.height = ch;
+            }
+            const cctx = cache.getContext('2d');
+            if (cctx) {
+              cctx.clearRect(0, 0, cache.width, cache.height);
+              cctx.drawImage(vid, 0, 0, cache.width, cache.height);
+              previewVideoFrameMetaRef.current = { path: active.path, time: targetTime };
+            }
           } catch {
             // ignore draw errors
+          }
+        } else {
+          const cache = previewVideoFrameRef.current;
+          const meta = previewVideoFrameMetaRef.current;
+          if (cache && meta?.path === active.path) {
+            try {
+              drawFrame(cache);
+            } catch {
+              // ignore draw errors
+            }
           }
         }
       }
@@ -2277,6 +2585,19 @@ const App = () => {
   }, [renderPreviewFrame]);
 
   useEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => {
+      const width = Math.max(0, Math.floor(el.clientWidth));
+      setPreviewContainerWidth(width);
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update();
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
     const root = appRootRef.current;
     if (!root || typeof ResizeObserver === 'undefined') return;
     let ticking = false;
@@ -2305,8 +2626,8 @@ const App = () => {
       const drag = previewResizeRef.current;
       if (!drag) return;
       const delta = e.clientY - drag.startY;
-      const next = Math.max(200, Math.min(800, drag.startH + delta));
-      setPreviewHeight(next);
+      const nextH = Math.max(200, Math.min(800, drag.startH + delta));
+      setPreviewHeight(nextH);
     };
     const onUp = () => {
       previewResizeRef.current = null;
@@ -2318,6 +2639,57 @@ const App = () => {
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
+
+  useEffect(() => {
+    const vid = previewVideoElRef.current;
+    if (!vid) return;
+    const active = resolveActiveClip(session.playhead ?? 0);
+    if (!active) {
+      vid.pause();
+      return;
+    }
+    const src = toFileURL(active.path);
+    if (vid.src !== src) {
+      vid.src = src;
+    }
+    if (!isPlaying) {
+      try {
+        if (Math.abs(vid.currentTime - active.local) > 0.02) {
+          vid.currentTime = active.local;
+        }
+        vid.pause();
+      } catch {}
+    }
+  }, [isPlaying, resolveActiveClip, session.playhead]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const vid = previewVideoElRef.current;
+    if (!vid) return;
+    const sync = () => {
+      if (!isPlaying || !audioEl) return;
+      const active = resolveActiveClip(audioEl.currentTime);
+      if (!active) {
+        vid.pause();
+        return;
+      }
+      const src = toFileURL(active.path);
+      if (vid.src !== src) {
+        vid.src = src;
+      }
+      try {
+        if (Math.abs(vid.currentTime - active.local) > 0.08) {
+          vid.currentTime = active.local;
+        }
+        if (vid.paused) {
+          vid.play().catch(() => {});
+        }
+      } catch {}
+    };
+    const id = window.setInterval(sync, 200);
+    sync();
+    return () => window.clearInterval(id);
+  }, [audioEl, isPlaying, resolveActiveClip]);
 
   return (
     <div ref={appRootRef} style={{ padding: 2 }}>
@@ -2339,19 +2711,18 @@ const App = () => {
             <button className="pill-btn pill-btn--icon" type="button" onClick={handleSaveProject} title="Save Project" aria-label="Save Project" disabled={projectLocked || renderLocked}>
               <MaterialIcon name="save" ariaHidden />
             </button>
-            <button
-              className="pill-btn pill-btn--icon"
-              type="button"
-              aria-label={canvasPreset === 'landscape' ? 'Landscape' : 'Portrait'}
-              onClick={() => setCanvasPreset(canvasPreset === 'landscape' ? 'portrait' : 'landscape')}
-              style={{ borderColor: 'var(--border)' }}
-              title={canvasPreset === 'landscape' ? 'Landscape' : 'Portrait'}
-              disabled={renderLocked}
-            >
-              <MaterialIcon name={canvasPreset === 'landscape' ? 'crop_landscape' : 'crop_portrait'} ariaHidden />
-            </button>
-
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                className="pill-btn pill-btn--icon"
+                type="button"
+                aria-label={canvasPreset === 'landscape' ? 'Landscape' : 'Portrait'}
+                onClick={() => setCanvasPreset(canvasPreset === 'landscape' ? 'portrait' : 'landscape')}
+                style={{ borderColor: 'var(--border)' }}
+                title={canvasPreset === 'landscape' ? 'Landscape' : 'Portrait'}
+                disabled={renderLocked}
+              >
+                <MaterialIcon name={canvasPreset === 'landscape' ? 'crop_landscape' : 'crop_portrait'} ariaHidden />
+              </button>
               {(!isRendering) && (
                 <button className="pill-btn pill-btn--icon" type="button" onClick={handleStartRender} disabled={projectLocked || !session.projectSavePath || renderLocked} title="Render" aria-label="Render">
                   <MaterialIcon name="movie" ariaHidden />
@@ -2377,28 +2748,67 @@ const App = () => {
                 <MaterialIcon name={collapsed.preview ? 'expand_more' : 'expand_less'} ariaHidden />
               </button>
             </div>
+            {projectLocked && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 2,
+                  bottom: 2,
+                  left: 2,
+                  right: 84,
+                  background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                  color: '#0b0f16',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  padding: '0 12px',
+                  zIndex: 2,
+                  cursor: 'pointer',
+                  boxShadow: '0 10px 18px rgba(239, 68, 68, 0.35)',
+                }}
+                onClick={() => setLicenseModalOpen(true)}
+              >
+                Trial Edition: Click here to upgrade to the Full Version.
+              </div>
+            )}
           </div>
           {!collapsed.preview && (
             <div className="section-body" style={{ padding: 0 }}>
-              {projectLocked && (
-                <div
+              <div ref={previewContainerRef} style={{ display: 'flex', justifyContent: 'center', background: '#0b0f16', borderRadius: 8, position: 'relative' }}>
+                <video
+                  ref={previewVideoElRef}
+                  muted
+                  playsInline
                   style={{
-                    marginBottom: 4,
-                    padding: '6px 10px',
-                    background: 'rgba(0, 0, 0, 0.6)',
-                    color: '#f5f5f5',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    border: '1px dashed var(--border)',
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: Math.max(1, canvasSize.width * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
+                    height: Math.max(1, canvasSize.height * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
+                    objectFit: 'contain',
                     borderRadius: 8,
-                    textAlign: 'left',
+                    background: '#0b0f16',
+                    zIndex: 1,
                   }}
-                  onClick={() => setLicenseModalOpen(true)}
-                >
-                  Trial Edition: Click here to upgrade to the Full Version.
-                </div>
-              )}
-              <canvas ref={previewCanvasRef} style={{ width: '100%', height: previewHeight, display: 'block', borderRadius: 8, background: '#0b0f16' }} />
+                />
+                <canvas
+                  ref={previewCanvasRef}
+                  style={{
+                    width: Math.max(1, canvasSize.width * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
+                    height: Math.max(1, canvasSize.height * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
+                    display: 'block',
+                    borderRadius: 8,
+                    background: 'transparent',
+                    position: 'relative',
+                    zIndex: 2,
+                  }}
+                />
+              </div>
               <div
                 role="presentation"
                 onMouseDown={(e) => {
@@ -2605,10 +3015,20 @@ const App = () => {
               {layers.length === 0 && <div className="muted">No layers yet. Add spectrograph or text overlays to render on top of the video.</div>}
               {layers.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {layers.map((layer) => (
+                  {layers.map((layer, idx) => (
                     <div
                       key={layer.id}
                       onClick={() => openEditLayer(layer)}
+                      onDragOver={(e) => {
+                        if (layerDragId && layerDragId !== layer.id) e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (layerDragId && layerDragId !== layer.id) {
+                          moveLayerToIndex(layerDragId, idx);
+                          setLayerDragId(null);
+                        }
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -2620,6 +3040,19 @@ const App = () => {
                         cursor: 'pointer',
                       }}
                     >
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          setLayerDragId(layer.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => setLayerDragId(null)}
+                        title="Reorder layer"
+                        style={{ cursor: 'grab', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20 }}
+                      >
+                        <MaterialIcon name="drag_indicator" ariaHidden />
+                      </div>
                       <div style={{ width: 16, height: 16, borderRadius: 4, background: layer.color }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600 }}>
@@ -3379,6 +3812,16 @@ const App = () => {
                     });
                   }}
                 />
+                <label style={{ fontWeight: 600 }}>Fill Method</label>
+                <select
+                  className="pill-select"
+                  value={clipEditorDraft.fillMethod ?? 'loop'}
+                  onChange={(e) => updateClipEditorDraft({ fillMethod: e.target.value as ClipEdit['fillMethod'] })}
+                >
+                  <option value="loop">Loop</option>
+                  <option value="pingpong">Ping-Pong</option>
+                  <option value="stretch">Stretch</option>
+                </select>
                 <label style={{ fontWeight: 600 }}>Trim Start</label>
                 <input
                   type="number"
@@ -3490,35 +3933,92 @@ const App = () => {
 
         {licenseModalOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }} onClick={() => setLicenseModalOpen(false)}>
-            <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 18, width: 560, maxWidth: '92vw' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 18, width: 640, maxWidth: '94vw' }} onClick={(e) => e.stopPropagation()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>Upgrade to Full Version</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 16, alignItems: 'center', marginBottom: 12 }}>
                 <div style={{ background: '#0c1020', borderRadius: 10, padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <img
-                    src={assetHref('ui/muvid_setupWizard_logo.png')}
-                    alt="muvid logo"
+                    src={assetHref('ui/vizmatic_setupWizard_logo.png')}
+                    alt="vizmatic logo"
                     style={{ width: '100%', maxWidth: 190, height: 'auto', display: 'block', objectFit: 'contain' }}
                   />
                 </div>
-                <div style={{ background: '#f3f4f6', color: '#111', borderRadius: 8, padding: 12, border: '1px solid #e5e7eb' }}>
-                  <a href="https://muvid.sorryneedboost.com" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline', color: 'inherit', display: 'inline-block', fontFamily: 'Segoe UI, sans-serif' }}>
-                    <strong style={{ fontSize: '1.1em', fontWeight: 700, color: '#000' }}>Purchase Here</strong>
-                  </a>
-                  <div style={{ fontStyle: 'italic', color: '#666', fontSize: '0.85em', marginTop: 6, lineHeight: 1.5, maxWidth: 500 }}>
-                    Lifetime license that unlocks all current and future features for this generation of the muVid application.
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: 'var(--panel)', color: 'var(--text)', borderRadius: 8, padding: 12, border: '1px solid var(--border)' }}>
+                    <a
+                      href={`https://vizmatic.sorryneedboost.com/${machineId ? `?machineId=${encodeURIComponent(machineId)}#purchase` : '#purchase'}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="action-card action-card--purchase"
+                      style={{ textDecoration: 'none', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 10 }}
+                    >
+                      <MaterialIcon name="shopping_cart" className="action-card__icon" ariaHidden />
+                      <span className="action-card__text">
+                        <span className="action-card__label">Unlock full version of Vizmatic</span>
+                        <span className="action-card__title">Buy Perpetual License</span>
+                      </span>
+                    </a>
+                    <div style={{ fontStyle: 'italic', color: 'var(--text-muted)', fontSize: '0.85em', marginTop: 6, lineHeight: 1.5, maxWidth: 500 }}>
+                      Lifetime license that unlocks all current and future features for this generation of the vizmatic application.
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 700, marginBottom: 0, rowGap: 2, verticalAlign: 'bottom', }}>Enter Product Key</div>
+                  <div style={{ position: 'relative', verticalAlign: 'top', marginTop: 0, }}>
+                    <MaterialIcon name="key" ariaHidden className="pill-icon" />
+                    <input
+                      type="text"
+                      value={licenseKeyInput}
+                      onChange={(e) => setLicenseKeyInput(e.target.value)}
+                      placeholder="Enter product key provided during purchase or in confirmation email."
+                      style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: 8, textAlign: 'left', border: '1px solid var(--border)', background: 'var(--panel-alt)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, fontSize: 10, color: 'var(--text-muted)' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, width: '20%',verticalAlign: 'bottom', textAlign: 'right', color: 'var(--text)' }}>Machine ID</div>
+                    <div>If asked by support, use the buttons below to copy or view the full key.</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="text"
+                      readOnly
+                      value={machineId ? `${machineId.slice(0, 8)}-${machineId.slice(-8)}` : 'Loading...'}
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel-alt)', color: 'var(--text)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}
+                    />
+                    <button
+                      className="pill-btn pill-btn--icon"
+                      type="button"
+                      title="Copy Machine ID"
+                      aria-label="Copy Machine ID"
+                      onClick={() => {
+                        if (!machineId) return;
+                        try {
+                          navigator.clipboard.writeText(machineId);
+                        } catch {
+                          const temp = document.createElement('textarea');
+                          temp.value = machineId;
+                          temp.style.position = 'fixed';
+                          temp.style.top = '-1000px';
+                          document.body.appendChild(temp);
+                          temp.select();
+                          document.execCommand('copy');
+                          temp.remove();
+                        }
+                      }}
+                    >
+                      <MaterialIcon name="content_copy" ariaHidden />
+                    </button>
+                    <button
+                      className="pill-btn pill-btn--icon"
+                      type="button"
+                      title="View Full Machine ID"
+                      aria-label="View Full Machine ID"
+                      onClick={() => setMachineIdModalOpen(true)}
+                    >
+                      <MaterialIcon name="search" ariaHidden />
+                    </button>
                   </div>
                 </div>
               </div>
-              <label style={{ display: 'flex', flexDirection: 'row', gap: 6, marginBottom: 10 }}>
-                <span style={{ fontWeight: 600, padding: '5px 10px 10px 10px' }}>Enter Product Key</span>
-                <input
-                  type="text"
-                  value={licenseKeyInput}
-                  onChange={(e) => setLicenseKeyInput(e.target.value)}
-                  placeholder="XXXX-XXXX-XXXX-XXXX"
-                  style={{ padding: '8px 10px', borderRadius: 6, textAlign: 'center', border: '1px solid var(--border)', background: 'var(--panel-alt)', color: 'var(--text)' }}
-                />
-              </label>
               {licenseError && <div style={{ color: '#c0392b', marginBottom: 10 }}>{licenseError}</div>}
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button className="pill-btn" type="button" onClick={() => setLicenseModalOpen(false)}>
@@ -3547,6 +4047,43 @@ const App = () => {
           </div>
         )}
 
+        {machineIdModalOpen && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }} onClick={() => setMachineIdModalOpen(false)}>
+            <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 18, width: 520, maxWidth: '92vw' }} onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ marginTop: 0 }}>Machine ID</h3>
+              <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', wordBreak: 'break-all', padding: 10, background: 'var(--panel-alt)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                {machineId || 'Loading...'}
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button
+                  className="pill-btn"
+                  type="button"
+                  onClick={() => {
+                    if (!machineId) return;
+                    try {
+                      navigator.clipboard.writeText(machineId);
+                    } catch {
+                      const temp = document.createElement('textarea');
+                      temp.value = machineId;
+                      temp.style.position = 'fixed';
+                      temp.style.top = '-1000px';
+                      document.body.appendChild(temp);
+                      temp.select();
+                      document.execCommand('copy');
+                      temp.remove();
+                    }
+                  }}
+                >
+                  <span>Copy to Clipboard</span>
+                </button>
+                <button className="pill-btn" type="button" onClick={() => setMachineIdModalOpen(false)}>
+                  <span>Close</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activationInfoOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }} onClick={() => setActivationInfoOpen(false)}>
             <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 18, width: 520, maxWidth: '92vw' }} onClick={(e) => e.stopPropagation()}>
@@ -3554,24 +4091,24 @@ const App = () => {
               <div style={{ fontWeight: 700, marginBottom: 8 }}>{licenseStatus.licensed ? 'Activated' : 'Trial Version'}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 8, fontSize: 13 }}>
                 <div style={{ fontWeight: 600 }}>Machine ID</div>
-                <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>{machineId || '...'}</div>
+                <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', wordBreak: 'break-all' }}>{machineId || '...'}</div>
                 <div style={{ fontWeight: 600 }}>Name</div>
-                <div style={{ color: licenseStatus.licensed ? 'inherit' : '#777', fontStyle: licenseStatus.licensed ? 'normal' : 'italic' }}>
+                <div style={{ color: licenseStatus.licensed ? 'inherit' : 'var(--text-muted)', fontStyle: licenseStatus.licensed ? 'normal' : 'italic' }}>
                   {licenseStatus.licensed ? (licenseStatus.name || 'Unknown') : 'Unlicensed'}
                 </div>
                 <div style={{ fontWeight: 600 }}>Email</div>
-                <div style={{ color: licenseStatus.licensed ? 'inherit' : '#777', fontStyle: licenseStatus.licensed ? 'normal' : 'italic' }}>
+                <div style={{ color: licenseStatus.licensed ? 'inherit' : 'var(--text-muted)', fontStyle: licenseStatus.licensed ? 'normal' : 'italic' }}>
                   {licenseStatus.licensed ? (licenseStatus.email || 'Unknown') : 'Unlicensed'}
                 </div>
                 <div style={{ fontWeight: 600 }}>Date Activated</div>
-                <div style={{ color: licenseStatus.licensed ? 'inherit' : '#777', fontStyle: licenseStatus.licensed ? 'normal' : 'italic' }}>
+                <div style={{ color: licenseStatus.licensed ? 'inherit' : 'var(--text-muted)', fontStyle: licenseStatus.licensed ? 'normal' : 'italic' }}>
                   {licenseStatus.licensed
                     ? (licenseStatus.activatedAt ? new Date(licenseStatus.activatedAt).toLocaleDateString() : 'Unknown')
                     : 'Unlicensed'}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-                <button className="pill-btn" type="button" onClick={() => window.open('https://muvid.sorryneedboost.com', '_blank')}>Product Webpage</button>
+                <button className="pill-btn" type="button" onClick={() => window.open('https://vizmatic.sorryneedboost.com/#purchase', '_blank')}>Product Webpage</button>
                 <button className="pill-btn" type="button" onClick={() => { setActivationInfoOpen(false); setLicenseModalOpen(true); }} disabled={licenseStatus.licensed}>
                   Purchase License
                 </button>
@@ -3581,7 +4118,7 @@ const App = () => {
           </div>
         )}
 
-        <div className="right section-block">
+        <div className="right section-block" style={{ opacity: renderSectionLocked ? 0.35 : 1, pointerEvents: renderSectionLocked ? 'none' : 'auto' }}>
           <div className="section-header">
             <h2 style={{ margin: 0 }}>RENDER LOGS</h2>
             <div style={{ marginLeft: 'auto' }}>

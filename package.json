@@ -1,5 +1,5 @@
 {
-  "name": "muvid",
+  "name": "vizmatic",
   "version": "0.1.1",
   "private": true,
   "main": "dist-electron/electron/main.js",
@@ -16,7 +16,7 @@
     "start:electron": "electron ./dist-electron/electron/main.js",
     "electron": "npm run build && npm run start:electron",
     "dev": "npm run build && npm run start:electron",
-    "package:win": "npm run build && npx electron-packager . muvid --overwrite --platform=win32 --arch=x64 --out release --asar --executable-name muvid --icon client/public/ui/muvid_noText_logo.ico"
+    "package:win": "npm run build && npx electron-packager . vizmatic --overwrite --platform=win32 --arch=x64 --out release --asar --executable-name vizmatic --icon client/public/ui/vizmatic_noText_logo.ico"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

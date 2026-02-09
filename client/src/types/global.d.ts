@@ -31,6 +31,7 @@ export interface ElectronAPI {
   probeMediaFile(path: string): Promise<Partial<import('common/project').MediaLibraryItem>>;
   onProjectRequestSave(listener: () => void): () => void;
   onMenuAction(listener: (action: string) => void): () => void;
+  setLayerMoveEnabled(payload: { up: boolean; down: boolean }): void;
   onRenderLog(listener: (line: string) => void): () => void;
   onRenderProgress(listener: (data: { outTimeMs?: number; totalMs?: number }) => void): () => void;
   onRenderDone(listener: () => void): () => void;

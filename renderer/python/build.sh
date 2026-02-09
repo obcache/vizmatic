@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NAME="${NAME:-muvid-renderer}"
+NAME="${NAME:-vizmatic-renderer}"
 ONEFILE="${ONEFILE:-1}"
 
 info() { printf "[render-build] %s\n" "$1"; }

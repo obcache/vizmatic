@@ -4,8 +4,8 @@ import type { ProjectSchema } from 'common/project';
 import type { MediaLibraryItem } from 'common/project';
 
 const BRIDGE_MOCK_ENV_FLAGS = [
-  'VITE_muvid_USE_ELECTRON_BRIDGE_MOCK',
-  'muvid_USE_ELECTRON_BRIDGE_MOCK',
+  'VITE_vizmatic_USE_ELECTRON_BRIDGE_MOCK',
+  'vizmatic_USE_ELECTRON_BRIDGE_MOCK',
 ];
 
 type EnvValue = string | boolean | number | undefined;
@@ -152,7 +152,7 @@ const mockBridge: ElectronAPI = {
     const ts = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const name = `Project-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
-    return `${docs}/muvid/Projects/${name}`;
+    return `${docs}/vizmatic/Projects/${name}`;
   },
   async openProject() {
     return undefined as any;
@@ -180,6 +180,9 @@ const mockBridge: ElectronAPI = {
   },
   onMenuAction(listener) {
     return () => void listener;
+  },
+  setLayerMoveEnabled(_payload) {
+    // no-op
   },
   onRenderLog(listener) {
     // return unsubscribe no-op
@@ -327,6 +330,10 @@ export const onProjectRequestSave = (listener: () => void): (() => void) => {
 
 export const onMenuAction = (listener: (action: string) => void): (() => void) => {
   return getBridge().onMenuAction(listener);
+};
+
+export const setLayerMoveEnabled = (payload: { up: boolean; down: boolean }): void => {
+  return getBridge().setLayerMoveEnabled(payload);
 };
 
 export const notifyProjectSaved = (ok: boolean): void => {

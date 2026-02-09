@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Advanced Settings</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #0b0f16;
+        color: #e5e7eb;
+      }
+      h1 {
+        margin: 0 0 12px 0;
+        font-size: 18px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #121826;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      th, td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #1f2937;
+        vertical-align: top;
+      }
+      th {
+        text-align: left;
+        font-weight: 600;
+        background: #0f172a;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      input, textarea {
+        width: 100%;
+        background: #0b0f16;
+        color: #e5e7eb;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      textarea {
+        min-height: 56px;
+        resize: vertical;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      button {
+        border: 1px solid #374151;
+        background: #1f2937;
+        color: #e5e7eb;
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #3f51b5;
+        border-color: #3f51b5;
+      }
+      .muted {
+        color: #9ca3af;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Advanced Settings</h1>
+    <div class="muted">Directly edit global settings stored in settings.json.</div>
+    <div style="height: 10px"></div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 35%">Setting</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody id="settings-body"></tbody>
+    </table>
+    <div class="actions">
+      <button id="reload">Reload</button>
+      <button class="primary" id="save">Save</button>
+    </div>
+
+    <script>
+      const body = document.getElementById('settings-body');
+      const reloadBtn = document.getElementById('reload');
+      const saveBtn = document.getElementById('save');
+
+      const flatten = (obj, prefix = '', out = {}) => {
+        Object.entries(obj || {}).forEach(([key, value]) => {
+          const next = prefix ? `${prefix}.${key}` : key;
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            flatten(value, next, out);
+          } else {
+            out[next] = value;
+          }
+        });
+        return out;
+      };
+
+      const unflatten = (flat) => {
+        const out = {};
+        Object.entries(flat).forEach(([key, value]) => {
+          const parts = key.split('.');
+          let node = out;
+          parts.forEach((part, idx) => {
+            if (idx === parts.length - 1) {
+              node[part] = value;
+            } else {
+              if (!node[part] || typeof node[part] !== 'object') node[part] = {};
+              node = node[part];
+            }
+          });
+        });
+        return out;
+      };
+
+      const render = (flat) => {
+        body.innerHTML = '';
+        Object.keys(flat).sort().forEach((key) => {
+          const row = document.createElement('tr');
+          const nameCell = document.createElement('td');
+          const valueCell = document.createElement('td');
+          nameCell.textContent = key;
+          const input = document.createElement('textarea');
+          input.value = flat[key] === undefined ? '' : JSON.stringify(flat[key]);
+          input.dataset.key = key;
+          valueCell.appendChild(input);
+          row.appendChild(nameCell);
+          row.appendChild(valueCell);
+          body.appendChild(row);
+        });
+      };
+
+      const load = async () => {
+        const settings = await window.electron.loadSettings();
+        render(flatten(settings));
+      };
+
+      const save = async () => {
+        const inputs = body.querySelectorAll('textarea');
+        const flat = {};
+        inputs.forEach((input) => {
+          const key = input.dataset.key;
+          if (!key) return;
+          let value = null;
+          try {
+            value = JSON.parse(input.value);
+          } catch {
+            value = input.value;
+          }
+          flat[key] = value;
+        });
+        const nested = unflatten(flat);
+        await window.electron.saveSettings(nested);
+      };
+
+      reloadBtn.addEventListener('click', () => load());
+      saveBtn.addEventListener('click', () => save());
+
+      load();
+    </script>
+  </body>
+</html>

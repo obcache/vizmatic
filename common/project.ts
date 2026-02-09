@@ -5,6 +5,7 @@ export interface ClipSegment {
   trimStart?: number; // seconds
   trimEnd?: number; // seconds
   duration?: number; // seconds
+  fillMethod?: 'loop' | 'pingpong' | 'stretch';
   label?: string;
   color?: string;
   hue?: number;

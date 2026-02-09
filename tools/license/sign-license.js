@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline license helper for muvid.
+ * Offline license helper for vizmatic.
  *
  * Examples:
  *   # Generate new keypair (keep privateJwk secret)
@@ -22,7 +22,7 @@ const help = () => {
   generate-keypair --out <path>              Generate P-256 keypair (writes publicJwk/privateJwk)
   sign --private <path> --payload <path>     Sign payload JSON with privateJwk, emit license string
        [--out <path>]
-  verify --public <path> --license <string>  Verify license string with publicJwk
+  verify --public <path> --license <string>  Verify license string with publicJwk.
   `);
   process.exit(1);
 };
@@ -60,6 +60,16 @@ if (cmd === 'generate-keypair') {
   const dir = path.dirname(outPath);
   if (dir && dir !== '.' && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   writeJson(outPath, payload);
+  try {
+    const rootDir = process.cwd();
+    const websiteKeyPath = path.join(rootDir, 'www-vizmatic', 'license', 'license-keypair.json');
+    const websiteDir = path.dirname(websiteKeyPath);
+    if (!fs.existsSync(websiteDir)) fs.mkdirSync(websiteDir, { recursive: true });
+    writeJson(websiteKeyPath, payload);
+    console.log(`Copied keypair to ${websiteKeyPath}`);
+  } catch (err) {
+    console.warn('Failed to copy keypair into www-vizmatic/license:', err);
+  }
   console.log(`Wrote keypair to ${outPath}`);
   console.log('Public JWK (add to client LICENSE_PUBLIC_KEY_JWK):');
   console.log(JSON.stringify(publicKey, null, 2));

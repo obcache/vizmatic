@@ -14,6 +14,8 @@ export interface ExportSessionRequest {
 }
 
 export interface ElectronBridge {
+  loadSettings: () => Promise<Record<string, any>>;
+  saveSettings: (settings: Record<string, any>) => Promise<void>;
   loadSessionState: () => Promise<SessionState | undefined>;
   saveSessionState: (state: SessionState) => Promise<void>;
   exportSession: (request: ExportSessionRequest) => Promise<void>;
@@ -38,6 +40,7 @@ export interface ElectronBridge {
   probeMediaFile: (path: string) => Promise<Partial<import('../common/project').MediaLibraryItem>>;
   onProjectRequestSave: (listener: () => void) => () => void;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  setLayerMoveEnabled: (payload: { up: boolean; down: boolean }) => void;
   onRenderLog: (listener: (line: string) => void) => () => void;
   onRenderProgress: (listener: (data: { outTimeMs?: number; totalMs?: number }) => void) => () => void;
   onRenderDone: (listener: () => void) => () => void;
@@ -46,6 +49,8 @@ export interface ElectronBridge {
 }
 
 const bridge: ElectronBridge = {
+  loadSettings: () => ipcRenderer.invoke('settings:load'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   loadSessionState: () => ipcRenderer.invoke('session:load'),
   saveSessionState: (state) => ipcRenderer.invoke('session:save', state),
   exportSession: (request) => ipcRenderer.invoke('session:export', request),
@@ -82,6 +87,9 @@ const bridge: ElectronBridge = {
     const handler = (_e: Electron.IpcRendererEvent, action: string) => listener(action);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
+  },
+  setLayerMoveEnabled: (payload) => {
+    ipcRenderer.send('menu:setLayerMoveEnabled', payload);
   },
   onRenderLog: (listener) => {
     const channel = 'render:log';

@@ -1,17 +1,17 @@
-#define MyAppName "muvid"
-#define MyAppVersion "1.0.0"
+#define MyAppName "vizmatic"
+#define MyAppVersion "1.0.6"
 #define MyAppPublisher "SorryNeedBoost, LLC"
-#define MyAppExeName "muvid.exe"
-#define MyAppId "8A7E0C0A-0000-4000-8000-0000muvid"
-#define SetupImageFile "E:\Production\Coding\muvid\client\public\ui\muvid_setupWizard_logo.png"
-#define IconFile "E:\Production\Coding\muvid\client\public\ui\muvid_noText_logo.ico"
-#define ShortcutImageFile "E:\Production\Coding\muvid\client\public\ui\muvid_noText_logo.png"
-#define SetupSmallImageFile "E:\Production\Coding\muvid\client\public\ui\muvid_logo.png"
+#define MyAppExeName "vizmatic.exe"
+#define MyAppId "8A7E0C0A-0000-4000-8000-0000vizmatic"
+#define SetupImageFile "E:\Production\Coding\vizmatic\client\public\ui\vizmatic_setupWizard_logo.png"
+#define IconFile "E:\Production\Coding\vizmatic\client\public\ui\vizmatic_noText_logo.ico"
+#define ShortcutImageFile "E:\Production\Coding\vizmatic\client\public\ui\vizmatic_noText_logo.png"
+#define SetupSmallImageFile "E:\Production\Coding\vizmatic\client\public\ui\vizmatic_logo.png"
 
 ; Adjust these source paths to your built app output locations
-#define AppBinDir "E:\Production\Coding\muvid\release\muvid-win32-x64"             
-#define RendererBinDir "E:\Production\Coding\muvid\renderer\python\dist"
-#define VendorRedistDir "E:\Production\Coding\muvid\vendor\windows\redist"
+#define AppBinDir "E:\Production\Coding\vizmatic\release\vizmatic-win32-x64"             
+#define RendererBinDir "E:\Production\Coding\vizmatic\renderer\python\dist"
+#define VendorRedistDir "E:\Production\Coding\vizmatic\vendor\windows\redist"
 
 [Setup]
 AppId={#MyAppId}
@@ -22,9 +22,8 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableDirPage=no
 DisableProgramGroupPage=yes
-OutputDir=installer\releases
-OutputBaseFilename=muvid-{#MyAppVersion}_x64_install
-Compression=lzma
+OutputDir=e:\production\coding\vizmatic\www-vizmatic\dist
+OutputBaseFilename=vizmatic-setup-win64-{#MyAppVersion}
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
@@ -46,7 +45,7 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Source: "{#AppBinDir}\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 ; Packaged Python renderer binary goes under resources\\renderer
-Source: "{#RendererBinDir}\\muvid-renderer.exe"; DestDir: "{app}\\resources\\renderer"; Flags: ignoreversion
+Source: "{#RendererBinDir}\\vizmatic-renderer.exe"; DestDir: "{app}\\resources\\renderer"; Flags: ignoreversion
 
 ; Redist ffmpeg/ffprobe to {app}\\redist
 Source: "{#VendorRedistDir}\\ffmpeg.exe"; DestDir: "{app}\\redist"; Flags: ignoreversion

@@ -24,9 +24,9 @@ Note: Environment remediation tasks and a running development journal now live i
   - Expect prompt: Stop Render / Cancel. Choose Stop Render to terminate and continue with save prompt if dirty.
 
 Environment variables (for dev):
-- `muvid_PYTHON` to select Python interpreter (e.g., `C:\\Python39\\python.exe`).
-- `muvid_FFMPEG` absolute path to ffmpeg binary.
-- `muvid_FFPROBE` absolute path to ffprobe binary.
+- `vizmatic_PYTHON` to select Python interpreter (e.g., `C:\\Python39\\python.exe`).
+- `vizmatic_FFMPEG` absolute path to ffmpeg binary.
+- `vizmatic_FFPROBE` absolute path to ffprobe binary.
 
 ## Electron session persistence (nodeIntegration disabled)
 
@@ -35,15 +35,15 @@ Environment variables (for dev):
 3. Enter some text into the "Session Notes" textarea.
 4. Click **Save Session** and confirm the status message switches to "Session saved.".
 5. Quit and relaunch the app; the previously saved notes should load automatically, confirming `loadSessionState` works through the preload bridge.
-6. Click **Export Session** and provide an absolute path (e.g., `/tmp/muvid-session.json`).
+6. Click **Export Session** and provide an absolute path (e.g., `/tmp/vizmatic-session.json`).
 7. Verify the export file exists and contains the JSON session payload.
 
 ## Browser UI previews / Storybook
 
 The renderer can run outside of Electron (for example Storybook or static UI previews). Set the environment flag
-`VITE_muvid_USE_ELECTRON_BRIDGE_MOCK=true` (or `muvid_USE_ELECTRON_BRIDGE_MOCK=true` when booting through Node) and
+`VITE_vizmatic_USE_ELECTRON_BRIDGE_MOCK=true` (or `vizmatic_USE_ELECTRON_BRIDGE_MOCK=true` when booting through Node) and
 start the dev server in development mode to opt into a safe mock implementation of the Electron bridge APIs. For setups
-without a Node runner you can declare `window.muvid_USE_ELECTRON_BRIDGE_MOCK = true` (or the Vite-prefixed variant) in a
+without a Node runner you can declare `window.vizmatic_USE_ELECTRON_BRIDGE_MOCK = true` (or the Vite-prefixed variant) in a
 bootstrap script before the bundle loads. With the flag enabled, `loadSessionState`, `saveSessionState`, and
 `exportSession` become no-ops so that UI workflows continue to function without a preload script. The mock is disabled by
 default to avoid impacting production Electron builds.

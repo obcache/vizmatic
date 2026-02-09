@@ -1,6 +1,12 @@
 {
     "configurations": [
         {
+            "command": "npm run dev",
+            "name": "npm run dev",
+            "request": "launch",
+            "type": "node-terminal"
+        },
+        {
             "name": "Launch Chrome",
             "request": "launch",
             "type": "chrome",

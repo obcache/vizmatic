@@ -1,4 +1,4 @@
-# muvid Offline License Helpers
+# vizmatic Offline License Helpers
 
 This folder contains a tiny Node script to generate keys and sign offline license payloads for the app.
 

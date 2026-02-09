@@ -1,7 +1,7 @@
-# Muvid User Guide
+# vizmatic User Guide
 
 ## Overview
-Muvid is a music visualizer generator that lets you assemble videos, audio, and visualizer/text layers into a final render. It provides:
+vizmatic is a music visualizer generator that lets you assemble videos, audio, and visualizer/text layers into a final render. It provides:
 - Project-based workflows (save/load).
 - Audio + video timeline assembly.
 - Visualizer (spectrogram) and text overlays.
@@ -27,7 +27,7 @@ Muvid is a music visualizer generator that lets you assemble videos, audio, and 
 6) Save the project and render.
 
 ## Project Basics
-- Unsaved projects show as: `muvid - Unsaved Project *` in the title bar.
+- Unsaved projects show as: `vizmatic - Unsaved Project *` in the title bar.
 - Save often. Rendering uses the saved project JSON.
 
 ### Save and Load
@@ -137,7 +137,7 @@ Project > Render button or File > Render.
 Project > Cancel or File > Cancel Render.
 
 ### Output Location
-You are prompted for an output file name. A temporary `render.json` is created in a `.muvid` folder alongside the project.
+You are prompted for an output file name. A temporary `render.json` is created in a `.vizmatic` folder alongside the project.
 
 ## Media Library
 The Media Library lets you store reusable clips:
@@ -170,7 +170,7 @@ View:
 - Zoom Out
 - Zoom Fit
 Help:
-- About muvid
+- About vizmatic
 
 ## Tips
 - For very short clips, zoom in to reveal labels and durations.

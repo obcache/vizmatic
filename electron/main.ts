@@ -34,18 +34,42 @@ async function ensureUserDataDir(): Promise<void> {
   await fs.mkdir(directory, { recursive: true });
 }
 
+const writeJsonAtomic = async (filePath: string, payload: unknown): Promise<void> => {
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath);
+  const tmpPath = path.join(dir, `${base}.tmp`);
+  const data = JSON.stringify(payload ?? {}, null, 2);
+  await fs.writeFile(tmpPath, data, 'utf-8');
+  await fs.rename(tmpPath, filePath);
+};
+
 const readSettingsState = async (): Promise<SettingsState> => {
   const filePath = getSettingsFilePath();
   try {
     const content = await fs.readFile(filePath, 'utf-8');
+    if (!content.trim()) {
+      return {};
+    }
     const parsed = JSON.parse(content);
     if (parsed && typeof parsed === 'object') {
       return parsed as SettingsState;
     }
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn('[settings] Failed to read settings file:', error);
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      return {};
     }
+    if (err.name === 'SyntaxError') {
+      try {
+        const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+        await fs.rename(filePath, corruptPath);
+        console.warn('[settings] Corrupt settings file moved to', corruptPath);
+      } catch (moveErr) {
+        console.warn('[settings] Failed to move corrupt settings file:', moveErr);
+      }
+      return {};
+    }
+    console.warn('[settings] Failed to read settings file:', error);
   }
   return {};
 };
@@ -86,7 +110,15 @@ const saveWindowState = async (window: BrowserWindow): Promise<void> => {
     },
   };
   await ensureUserDataDir();
-  await fs.writeFile(getSettingsFilePath(), JSON.stringify(payload, null, 2), 'utf-8');
+  await writeJsonAtomic(getSettingsFilePath(), payload);
+};
+
+const safeSaveWindowState = async (window: BrowserWindow): Promise<void> => {
+  try {
+    await saveWindowState(window);
+  } catch (err) {
+    console.warn('[settings] Failed to save window state:', err);
+  }
 };
 
 ipcMain.handle('session:load', async (): Promise<SessionState | undefined> => {
@@ -264,7 +296,7 @@ ipcMain.handle('project:open', async (): Promise<{ path: string; project: unknow
   }
   // Basic shape validation; renderer can further validate
   if (!isProjectSchema(parsed)) {
-    throw new Error('Selected file is not a valid muvid project JSON.');
+    throw new Error('Selected file is not a valid vizmatic project JSON.');
   }
   return { path: filePath, project: parsed };
 });
@@ -298,13 +330,13 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
     throw new Error('Project JSON file does not exist.');
   }
 
-  const rendererOverride = process.env.muvid_RENDERER; // path to exe or script
-  const pythonOverride = process.env.muvid_PYTHON || 'python';
+  const rendererOverride = process.env.vizmatic_RENDERER; // path to exe or script
+  const pythonOverride = process.env.vizmatic_PYTHON || 'python';
 
   // Resolve default renderer script location in dev
   const candidates = [
     // packaged binary inside Electron asar/resources
-    path.join(process.resourcesPath, 'renderer', process.platform === 'win32' ? 'muvid-renderer.exe' : 'muvid-renderer'),
+    path.join(process.resourcesPath, 'renderer', process.platform === 'win32' ? 'vizmatic-renderer.exe' : 'vizmatic-renderer'),
     // when running from TS outDir (dist-electron/electron), go up to repo root
     path.join(__dirname, '..', '..', 'renderer', 'python', 'main.py'),
     // alternate relative
@@ -319,7 +351,7 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   })());
 
   if (!rendererPath) {
-    throw new Error('Renderer script not found. Set muvid_RENDERER to the Python script or packaged renderer.');
+    throw new Error('Renderer script not found. Set vizmatic_RENDERER to the Python script or packaged renderer.');
   }
 
   const isPy = rendererPath.toLowerCase().endsWith('.py');
@@ -334,11 +366,11 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   const redistFfprobe = path.join(redistDir, fpName);
   try {
     await fs.access(redistFfmpeg);
-    if (!childEnv.muvid_FFMPEG) childEnv.muvid_FFMPEG = redistFfmpeg;
+    if (!childEnv.vizmatic_FFMPEG) childEnv.vizmatic_FFMPEG = redistFfmpeg;
   } catch {}
   try {
     await fs.access(redistFfprobe);
-    if (!childEnv.muvid_FFPROBE) childEnv.muvid_FFPROBE = redistFfprobe;
+    if (!childEnv.vizmatic_FFPROBE) childEnv.vizmatic_FFPROBE = redistFfprobe;
   } catch {}
   // If running a standalone packaged renderer binary, also try sibling fallback
   if (!isPy) {
@@ -347,11 +379,11 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
     const sibFfprobe = path.join(base, fpName);
     try {
       await fs.access(sibFfmpeg);
-      if (!childEnv.muvid_FFMPEG) childEnv.muvid_FFMPEG = sibFfmpeg;
+      if (!childEnv.vizmatic_FFMPEG) childEnv.vizmatic_FFMPEG = sibFfmpeg;
     } catch {}
     try {
       await fs.access(sibFfprobe);
-      if (!childEnv.muvid_FFPROBE) childEnv.muvid_FFPROBE = sibFfprobe;
+      if (!childEnv.vizmatic_FFPROBE) childEnv.vizmatic_FFPROBE = sibFfprobe;
     } catch {}
   }
   // Dev fallbacks: vendor\\windows\\redist and local .\\redist under repo root
@@ -364,22 +396,22 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   ];
   for (const b of devBases) {
     try {
-      if (!childEnv.muvid_FFMPEG) {
+      if (!childEnv.vizmatic_FFMPEG) {
         const p = path.join(b, ffName);
         await fs.access(p);
-        childEnv.muvid_FFMPEG = p;
+        childEnv.vizmatic_FFMPEG = p;
       }
-      if (!childEnv.muvid_FFPROBE) {
+      if (!childEnv.vizmatic_FFPROBE) {
         const p = path.join(b, fpName);
         await fs.access(p);
-        childEnv.muvid_FFPROBE = p;
+        childEnv.vizmatic_FFPROBE = p;
       }
     } catch {}
   }
 
   // Emit diagnostic of resolved tools
   try {
-    const msg = `Using ffmpeg: ${childEnv.muvid_FFMPEG ?? '(PATH)'}; ffprobe: ${childEnv.muvid_FFPROBE ?? '(PATH)'}`;
+    const msg = `Using ffmpeg: ${childEnv.vizmatic_FFMPEG ?? '(PATH)'}; ffprobe: ${childEnv.vizmatic_FFPROBE ?? '(PATH)'}`;
     console.log('[render]', msg);
     mainWindow?.webContents.send('render:log', msg);
   } catch {}
@@ -469,10 +501,10 @@ async function resolveRendererEntryPoint(): Promise<string> {
 
 async function resolveAppIcon(): Promise<string | undefined> {
   const candidates = [
-    path.join(__dirname, '..', 'dist', 'ui', 'muvid_noText_logo.ico'),
-    path.join(__dirname, '..', '..', 'dist', 'ui', 'muvid_noText_logo.ico'),
-    path.join(__dirname, '..', 'client', 'public', 'ui', 'muvid_noText_logo.ico'),
-    path.join(__dirname, '..', '..', 'client', 'public', 'ui', 'muvid_noText_logo.ico'),
+    path.join(__dirname, '..', 'dist', 'ui', 'vizmatic_noText_logo.ico'),
+    path.join(__dirname, '..', '..', 'dist', 'ui', 'vizmatic_noText_logo.ico'),
+    path.join(__dirname, '..', 'client', 'public', 'ui', 'vizmatic_noText_logo.ico'),
+    path.join(__dirname, '..', '..', 'client', 'public', 'ui', 'vizmatic_noText_logo.ico'),
   ];
 
   for (const candidate of candidates) {
@@ -490,6 +522,33 @@ async function resolveAppIcon(): Promise<string | undefined> {
 let mainWindow: BrowserWindow | null = null;
 let currentRenderChild: import('node:child_process').ChildProcess | null = null;
 let projectDirty: boolean = false;
+let preferencesWindow: BrowserWindow | null = null;
+
+const openPreferencesWindow = async () => {
+  if (preferencesWindow && !preferencesWindow.isDestroyed()) {
+    preferencesWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 720,
+    height: 520,
+    minWidth: 600,
+    minHeight: 420,
+    autoHideMenuBar: true,
+    title: 'Advanced Settings',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  preferencesWindow = win;
+  win.on('closed', () => {
+    preferencesWindow = null;
+  });
+  const prefsPath = path.join(__dirname, 'preferences.html');
+  await win.loadFile(prefsPath);
+};
 
 async function createWindow(): Promise<void> {
   const windowState = await loadWindowState();
@@ -511,11 +570,28 @@ async function createWindow(): Promise<void> {
   });
 
   mainWindow = win;
+  win.webContents.setWindowOpenHandler((details) => {
+    const url = details.url || '';
+    if (url.includes('vizmatic.sorryneedboost.com')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 1200,
+          height: 900,
+          minWidth: 900,
+          minHeight: 700,
+          autoHideMenuBar: false,
+          show: true,
+        },
+      };
+    }
+    return { action: 'allow' };
+  });
   if (windowState.isMaximized) {
     win.maximize();
   }
   win.on('close', () => {
-    void saveWindowState(win);
+    void safeSaveWindowState(win);
   });
   const indexHtml = await resolveRendererEntryPoint();
 
@@ -535,6 +611,28 @@ const emitMenuAction = (action: string) => {
   }
 };
 
+ipcMain.on('menu:setLayerMoveEnabled', (_event, payload: { up: boolean; down: boolean }) => {
+  try {
+    const menu = Menu.getApplicationMenu();
+    if (!menu) return;
+    const upItem = menu.getMenuItemById('layer:moveUp');
+    const downItem = menu.getMenuItemById('layer:moveDown');
+    if (upItem) upItem.enabled = !!payload.up;
+    if (downItem) downItem.enabled = !!payload.down;
+  } catch (err) {
+    console.warn('[menu] failed to update layer move items', err);
+  }
+});
+
+ipcMain.handle('settings:load', async (): Promise<SettingsState> => {
+  return readSettingsState();
+});
+
+ipcMain.handle('settings:save', async (_event, settings: SettingsState): Promise<void> => {
+  await ensureUserDataDir();
+  await writeJsonAtomic(getSettingsFilePath(), settings ?? {});
+});
+
 const buildAppMenu = () => {
   const template = [
     {
@@ -545,6 +643,10 @@ const buildAppMenu = () => {
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => emitMenuAction('project:save') },
         { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: () => emitMenuAction('project:saveAs') },
+        { type: 'separator' },
+        { label: 'Preferences', submenu: [
+          { label: 'Advanced Settings', click: () => { void openPreferencesWindow(); } },
+        ] },
         { type: 'separator' },
         { label: 'Render', accelerator: 'CmdOrCtrl+R', click: () => emitMenuAction('render:start') },
         { label: 'Cancel Render', click: () => emitMenuAction('render:cancel') },
@@ -566,11 +668,16 @@ const buildAppMenu = () => {
       submenu: [
         { label: 'Add Visualizer', click: () => emitMenuAction('layer:addSpectrograph') },
         { label: 'Add Text', click: () => emitMenuAction('layer:addText') },
+        { type: 'separator' },
+        { id: 'layer:moveUp', label: 'Move Layer Up', click: () => emitMenuAction('layer:moveUp'), enabled: false },
+        { id: 'layer:moveDown', label: 'Move Layer Down', click: () => emitMenuAction('layer:moveDown'), enabled: false },
       ],
     },
     {
       label: 'View',
       submenu: [
+        { label: 'Toggle Developer Tools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
+        { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => mainWindow?.webContents.reload() },
         { label: 'Zoom Timeline In', accelerator: 'CmdOrCtrl+=', click: () => emitMenuAction('view:zoomIn') },
         { label: 'Zoom Timeline Out', accelerator: 'CmdOrCtrl+-', click: () => emitMenuAction('view:zoomOut') },
         { label: 'Zoom Timeline Fit', accelerator: 'CmdOrCtrl+0', click: () => emitMenuAction('view:zoomFit') },
@@ -599,7 +706,7 @@ const buildAppMenu = () => {
           ],
         },
         { type: 'separator' },
-        { label: 'About muvid', click: () => emitMenuAction('help:about') },
+        { label: 'About vizmatic', click: () => emitMenuAction('help:about') },
       ],
     },
   ];
@@ -618,6 +725,12 @@ app.on('window-all-closed', () => {
   }
 });
 
+app.on('before-quit', () => {
+  if (mainWindow) {
+    void safeSaveWindowState(mainWindow);
+  }
+});
+
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow();
@@ -633,6 +746,7 @@ app.on('browser-window-created', (_event, window) => {
 // Intercept window close to prompt save for dirty projects
 app.on('browser-window-created', (_event, window) => {
   window.on('close', async (e) => {
+    await safeSaveWindowState(window);
     // First, if a render is in progress, prompt to stop or cancel exit
     if (currentRenderChild) {
       e.preventDefault();
@@ -714,7 +828,7 @@ app.on('browser-window-created', (_event, window) => {
 });
 ipcMain.handle('project:defaultPath', async (): Promise<string> => {
   const docs = app.getPath('documents');
-  const baseDir = path.join(docs, 'muvid', 'Projects');
+  const baseDir = path.join(docs, 'vizmatic', 'Projects');
   await fs.mkdir(baseDir, { recursive: true });
   const ts = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -733,8 +847,8 @@ ipcMain.handle('render:chooseOutput', async (_event, projectJsonPath?: string): 
   } catch {}
   if (!defaultPath) {
     const docs = app.getPath('documents');
-    await fs.mkdir(path.join(docs, 'muvid', 'Renders'), { recursive: true });
-    defaultPath = path.join(docs, 'muvid', 'Renders', 'render.mp4');
+    await fs.mkdir(path.join(docs, 'vizmatic', 'Renders'), { recursive: true });
+    defaultPath = path.join(docs, 'vizmatic', 'Renders', 'render.mp4');
   }
   const result = await dialog.showSaveDialog({
     title: 'Choose output video file',
@@ -748,7 +862,7 @@ ipcMain.handle('render:chooseOutput', async (_event, projectJsonPath?: string): 
 
 ipcMain.handle('render:prepareProject', async (_event, projectJsonPath: string, outputPath: string): Promise<string> => {
   const dir = path.dirname(projectJsonPath);
-  const work = path.join(dir, '.muvid');
+  const work = path.join(dir, '.vizmatic');
   await fs.mkdir(work, { recursive: true });
   const tmpPath = path.join(work, 'render.json');
   const raw = await fs.readFile(projectJsonPath, 'utf-8');
@@ -786,7 +900,7 @@ ipcMain.handle('mediaLibrary:probe', async (_event, filePath: string): Promise<P
   const ffprobePath = await (async () => {
     const ffName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
     const candidates = [
-      process.env.muvid_FFPROBE,
+      process.env.vizmatic_FFPROBE,
       path.join(process.resourcesPath, 'redist', ffName),
       path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'windows', 'redist', ffName),
       path.join(process.cwd(), 'vendor', 'windows', 'redist', ffName),

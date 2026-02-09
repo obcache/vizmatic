@@ -1,8 +1,8 @@
-﻿# muvid Desktop
+﻿# vizmatic Desktop
 
-muvid is a fast, friendly desktop app for assembling social‑ready videos from a set of clips with an optional audio bed. It focuses on simplicity: shuttle controls with a waveform, an intuitive storyboard for sequencing, and one‑click export to MP4.
+vizmatic is a fast, friendly desktop app for assembling social‑ready videos from a set of clips with an optional audio bed. It focuses on simplicity: shuttle controls with a waveform, an intuitive storyboard for sequencing, and one‑click export to MP4.
 
-## Why muvid
+## Why vizmatic
 
 - Avoid heavyweight editors for simple compilations.
 - Work fully offline — no accounts, no uploads.

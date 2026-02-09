@@ -22,6 +22,6 @@ Licensing and compliance
 
 Notes
 - The app prefers `{app}\redist` for ffmpeg/ffprobe; no PATH changes required.
-- You can override at runtime via environment variables `muvid_FFMPEG` and `muvid_FFPROBE`.
+- You can override at runtime via environment variables `vizmatic_FFMPEG` and `vizmatic_FFPROBE`.
 - If you choose not to redistribute ffmpeg/ffprobe, remove them from the installer and ensure they are available on PATH or set the env vars accordingly.
 

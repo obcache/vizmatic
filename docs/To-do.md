@@ -1,50 +1,67 @@
---Tighten spacing between sections by a few more pixels.
+apologies for the disorganized list here. normally i would have ite better arranged by topic
+but this built up of a while and i figured you're actually better geared for sorting the list than my brain is, so .....
+if you could organize and formalize this into a plan, that'd be spectacular.
 
---Drag and Drop of audio files isn't working.  The cursor change to say "+Copy" appears when you hit the drop target, but nothing happens
+significant changes:
 
->Add an Activation node under the Help menu in the menubar that pops up licensing information 
->--Header text stating either "Activated" or "Trial Version"
->--Machine ID
->--Customer Information (Name, Email Address, Date Activated)
->----The field labels should always exist
->----Greyed out italicized "Unlicensed" as the field values if not activated
->--Purchase License button that launches  Activation Modal (disabled if activated)
->--Product Webpage https://muvid.sorryneedboost.com
-
---remove the "disabled when audio not loaded" state from the licensing features
-
---Add a "Theme" node under the View menu, below the separater, above "Toggle Full Screen" that allows switching between Dark/Light/Auto (see next line)
---Add an "Auto" option for themes that detects whether windows is in Light or Dark mode and chooses the theme consistent with that, make this the default
---Remove the Theme selection DDL from the Preview Section Header
-
---Re-label the Preview section as "Project" and move New, Load, Save, Save-As, Render, Cancel and Orientation buttons as well as the elapsed time and Render progress indicator up there.
-----Except for Render and Cancel buttons, remove text from buttons (icons only)
-----use icon-project-new.png and icon-project-new-light.png for the new project button
-
---Make the Render and Cancel buttons' visibility mutually exclusive to save space (like Play/Pause)
---Make the landscape and portrait buttons mutually exclusive in the same way 
---add to the menubar unlicense (under "activation" in the help menu) and clear logs (under render and cancel render in the file menu)
---remove the unlicense and clear logs buttons
+pop-out and snap-right for preview section:
+--running out of vertical screen constantly trying to navigate the app with multiple layers in place.  need a button to "snap the preview to the right of the existing stack of sections and another to pop-out to a second window. 
 
 
---Leave the Render section at the bottom (where the logs are generated), but have it hidden by default
---Add to menubar "Toggle Logs" under View menu to show/hide them
---Remove Notes Section
---move the "Trial Edition:....." disabled/dimmming/linking to the activation modal up there as well, since that's where the buttons will now be, and will be easier to find for a new user
---reduce top padding of section headers by 3px
---Ensure that section text (such as "No Items in Library" or "No Clips. Use Add Video.....") are left-aligned with section labels
-
---have window height auto-adjust based on content (adjusting whenever layers are added or sections are collapsed/expanded)
 
 
---Since layer data auto-saves to allow for realtime preview of changes, the OK and Cancel buttons don't seem like they make sense. Especially the cancel button, as it doesn't really cancel changes made, unless I'm missing something?
-----The only real purpose I see for the OK button is when first adding a layer via one of the layer-add buttons, as it does not automatically create the layer until you click OK. 
-----I'm proposing that we have the layer created as soon as you click the add button, just like when you click duplicate and then
-------replace OK and Cancel with a "Close" button, to hide the properties panel
-------add an "undo" button (and therefore a redo button would also likely be needed for consistency with other applications
 
---change "Click to select Audio File" text to "Drag file or click to browse", increase letter-spacing to 2px,  and put an outline around it (using pill-style border-radius) that includes the Load Audio button area, effectively creating a target area for dragging (only visible when an audio file is not loaded)
+"re-sizing" video segments >
+currently short segments lose even their handlebars when the clip is too short to fit them, this is to keep the segments aligned with playhead.
+currently there's no way to specify whether you'd like to change the timeline start/stop points and the video segment's internal left/right trim when dragging a handlebar. 
 
---adjust redraws while previewing to reduce flashing blank white in between frames (possibly changing the ordering of layers during compositing? if we need to look into this futher, that's fine)
+this is what i'm proposing that could alleviate all of that, and it's somewhat complicated but shouldn't be difficult to do. 
 
---allow preview viewport to be resized by dragging the bottom of the top section down
+i'd like the handlebars to appear only when you're hovering over that segment and therefore can be drawn directly outside the segment, therefore not requiring any minimum video segment length to use them. 
+
+i'd also like for holding the ALT key to change the way those handlebars are drawn slightly and have that change the internal clip's left/right trim when dragged.  
+with normal (non-alt) behavior being to change the punch-in/punch-out on the timeline, but automatically also adjusting the clip's internal left/right when necessary to accomodate the change. 
+
+(example: if you were to drag the right handlebar left, it would reduce both the punch-out and the right trim.  then if you were to drag that same handlebar to the right, it would ONLY change the punch-out, causing the fill mode to determine how the gap beteween the right trim and the punch-out is generated.)
+
+one more small item to add would be semitransparent layer effectively changing the shading of the segment showing how it's internal left/right trim sits inside it's position on the timeline.  so if it's going through 2 iterations (in loop mode) to fill the segments width, then only half the segment would be shaded.
+
+
+
+Glow effect issues on layers
+Currently, the glow effect is applied based on the shadow and outline.  each effect doesn't seem to be applied.  If i have a green glow effect and a yellow shadow effect, the glow is only green if the shadow is zero.  as soon as the shadow is even 1 pixel in size, the entire glow color changes to the shadow color. 
+
+would like to move the layer property control panel to above the layers, so it's always on top, directly under teh buttons used to add new layers. 
+
+When switching layer types, the changes aren't auto-saving (and therefore not updating the preview)
+
+when clicking "duplicate" on a layer, it would be preferable to automatically select the newly created record. 
+
+i really like how you opted to use the primary color selected for each layer as the background color of the selected layer. could we also outline the selected layer with the outline color just to make it really apparent?
+
+when collapsing the preview section, the preview disappears when expanded again.  you must resize the entire window to get the preview to return. 
+
+we need to organize the controls for the layer properties and either add group boxes, lines separating, or even a tab-like (well, tabs.. just not with teh old fashiioned looking rounded tab headers).
+--categories would be something like:
+----"Type" (by itself)
+----"Position" (which includes size)
+----"Appearance" (color, glow, shadow)
+----"Layer-specific" (need a better label name than that, but meaning "everything that wasn't one of those globally classified properties")
+
+
+the mirrorX and mirrorY aren't working quite right either, they're not supposed to double, it's supposed to take the top half and mirror that for the bottom (or in quarters), completely hiding what would've originally been there. maing a kaleidescope type of effect. 
+
+low cut and high cut on the spectrogram should also change what the frequency range displayed is, not just the audio frequencies recognized during analysis. 
+
+if using an outline around an image layer with an image that's got a transparent background, the outline is around the entire height/width of the image dimensions and not around the image. you could use an additional glow for this and keep it at 100% opacity with no external fade. because glow works fine here already. 
+
+spectrograms:
+
+need a "cutout" property that can determine the size of the internal opening when in circle mode 
+need a "bar height/line height/dot size" property that allows scaling of the audio responsiveness without changing the dimensions of the object. 
+
+currently, the render button is outside the trial/lock banner, that should be the orientation button that's still available while in trial mode.  render shouldn't be avilable. 
+and if you can make the trail banner just a tiny bit transparent, so we can see there are icons hidden under it to be unlocked, that would be awesome. 
+
+
+
