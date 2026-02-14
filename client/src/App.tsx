@@ -2834,16 +2834,16 @@ const App = () => {
                 autoFocus
                 style={{
                   margin: '1px 0px',
-                  minWidth: 200,
-                  maxWidth: 360,
+                  minWidth: 260,
+                  maxWidth: 430,
                   height: 28,
                   padding: '2px 10px',
                   borderRadius: 8,
                   border: '1px solid var(--border)',
                   background: 'var(--panel)',
                   color: 'var(--text)',
-                  fontSize: 28,
-                  fontWeight: 700,
+                  fontSize: 22,
+                  fontWeight: 400,
                   lineHeight: 1,
                 }}
                 aria-label="Project name"
@@ -2854,12 +2854,14 @@ const App = () => {
                 onClick={beginProjectRename}
                 title="Rename project"
                 style={{
+                  minWidth: 260,
+                  maxWidth: 430,
                   margin: '1px 0px',
                   border: 'none',
                   background: 'transparent',
                   color: 'var(--text)',
-                  fontSize: 28,
-                  fontWeight: 700,
+                  fontSize: 22,
+                  fontWeight: 400,
                   lineHeight: 1,
                   cursor: 'text',
                   padding: 0,
