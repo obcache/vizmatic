@@ -930,6 +930,162 @@ a {
   font-size: 13px;
 }
 
+.samples-page {
+  padding: 28px 0 42px;
+}
+
+.samples-layout {
+  display: grid;
+  gap: 22px;
+}
+
+.samples-block h3 {
+  margin-top: 0;
+  margin-bottom: 14px;
+  font-size: 20px;
+  font-family: var(--font-head);
+}
+
+.samples-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.samples-audio-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.sample-audio-card {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(8, 10, 14, 0.8);
+}
+
+.sample-audio-card__head {
+  display: grid;
+  grid-template-columns: 42px 1fr 36px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.sample-audio-card__play,
+.sample-audio-card__download {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid #23324d;
+  background: #121a2a;
+  color: #dbe7ff;
+  display: grid;
+  place-items: center;
+}
+
+.sample-audio-card__play {
+  cursor: pointer;
+}
+
+.sample-audio-card__play .material-symbols-rounded,
+.sample-audio-card__download .material-symbols-rounded {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sample-audio-card__meta {
+  min-width: 0;
+}
+
+.sample-audio-card__wave {
+  border-radius: 10px;
+  border: 1px solid #1d2430;
+  background: #0f1520;
+  padding: 4px 8px;
+}
+
+.samples-grid--collection {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.sample-card {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(8, 10, 14, 0.8);
+}
+
+.sample-card:hover {
+  border-color: #2b5fcf;
+}
+
+.sample-card__thumb {
+  border-radius: 10px;
+  border: 1px solid #1d2430;
+  background: #101622;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.sample-card__thumb--audio .material-symbols-rounded,
+.sample-card__thumb--collection .material-symbols-rounded {
+  font-size: 30px;
+  color: #8ab1ff;
+}
+
+.sample-card__thumb--video video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+}
+
+.sample-card__thumb--video {
+  position: relative;
+  background: linear-gradient(135deg, #0e1420, #0b1018);
+}
+
+.sample-card__fallback {
+  font-size: 30px;
+  color: #8ab1ff;
+}
+
+.sample-card__thumb--video.is-ready video {
+  opacity: 1;
+}
+
+.sample-card__thumb--video.is-ready .sample-card__fallback {
+  opacity: 0;
+}
+
+.sample-card__meta {
+  min-width: 0;
+}
+
+.sample-card__name {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sample-card__size {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
 @keyframes modalEnter {
   from {
     transform: translateY(12px);

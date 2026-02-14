@@ -34,12 +34,15 @@ export interface ElectronBridge {
   saveProject: (filePath: string, project: ProjectSchema) => Promise<void>;
   updateProjectDirty: (dirty: boolean) => Promise<void>;
   notifyProjectSaved: (ok: boolean) => void;
-  getDefaultProjectPath: () => Promise<string>;
+  getDefaultProjectPath: (projectName?: string) => Promise<string>;
   loadMediaLibrary: () => Promise<import('../common/project').MediaLibraryItem[]>;
   saveMediaLibrary: (items: import('../common/project').MediaLibraryItem[]) => Promise<void>;
   probeMediaFile: (path: string) => Promise<Partial<import('../common/project').MediaLibraryItem>>;
+  openMediaLibraryWindow: () => Promise<void>;
+  addMediaLibraryItemToProject: (path: string) => Promise<void>;
   onProjectRequestSave: (listener: () => void) => () => void;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  onMediaLibraryAddPath: (listener: (path: string) => void) => () => void;
   setLayerMoveEnabled: (payload: { up: boolean; down: boolean }) => void;
   onRenderLog: (listener: (line: string) => void) => () => void;
   onRenderProgress: (listener: (data: { outTimeMs?: number; totalMs?: number }) => void) => () => void;
@@ -72,10 +75,12 @@ const bridge: ElectronBridge = {
   saveProject: (filePath: string, project: ProjectSchema) => ipcRenderer.invoke('project:save', filePath, project),
   updateProjectDirty: (dirty: boolean) => ipcRenderer.invoke('project:updateDirty', dirty),
   notifyProjectSaved: (ok: boolean) => { ipcRenderer.send('project:saved', ok); },
-  getDefaultProjectPath: () => ipcRenderer.invoke('project:defaultPath'),
+  getDefaultProjectPath: (projectName?: string) => ipcRenderer.invoke('project:defaultPath', projectName),
   loadMediaLibrary: () => ipcRenderer.invoke('mediaLibrary:load'),
   saveMediaLibrary: (items: any[]) => ipcRenderer.invoke('mediaLibrary:save', items),
   probeMediaFile: (p: string) => ipcRenderer.invoke('mediaLibrary:probe', p),
+  openMediaLibraryWindow: () => ipcRenderer.invoke('mediaLibrary:openWindow'),
+  addMediaLibraryItemToProject: (p: string) => ipcRenderer.invoke('mediaLibrary:addToProject', p),
   onProjectRequestSave: (listener) => {
     const channel = 'project:requestSave';
     const handler = () => listener();
@@ -85,6 +90,12 @@ const bridge: ElectronBridge = {
   onMenuAction: (listener) => {
     const channel = 'menu:action';
     const handler = (_e: Electron.IpcRendererEvent, action: string) => listener(action);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onMediaLibraryAddPath: (listener) => {
+    const channel = 'mediaLibrary:addPath';
+    const handler = (_e: Electron.IpcRendererEvent, path: string) => listener(path);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },

@@ -523,6 +523,7 @@ let mainWindow: BrowserWindow | null = null;
 let currentRenderChild: import('node:child_process').ChildProcess | null = null;
 let projectDirty: boolean = false;
 let preferencesWindow: BrowserWindow | null = null;
+let mediaLibraryWindow: BrowserWindow | null = null;
 
 const openPreferencesWindow = async () => {
   if (preferencesWindow && !preferencesWindow.isDestroyed()) {
@@ -548,6 +549,186 @@ const openPreferencesWindow = async () => {
   });
   const prefsPath = path.join(__dirname, 'preferences.html');
   await win.loadFile(prefsPath);
+};
+
+const buildMediaLibraryHtml = () => `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Media Library</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background: #0b0f16;
+      color: #e7ebf5;
+    }
+    .wrap { padding: 12px; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+    button {
+      border: 1px solid #2b3a58;
+      background: #101a2a;
+      color: #e7ebf5;
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .list {
+      border: 1px solid #22314d;
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 420px;
+      background: #0f1625;
+    }
+    .row {
+      border-bottom: 1px solid #1e2b43;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+    .row:last-child { border-bottom: none; }
+    .row.sel { background: #1a2640; }
+    .name { font-weight: 600; }
+    .path { font-size: 12px; color: #9fb0d4; margin-top: 2px; }
+    .meta { font-size: 12px; color: #9fb0d4; margin-top: 2px; }
+    .status { margin-top: 10px; font-size: 12px; color: #9fb0d4; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="addEntry">Add Entry</button>
+      <button id="addToProject" disabled>Add to Project</button>
+      <button id="remove" disabled>Remove</button>
+      <button id="refresh">Refresh</button>
+    </div>
+    <div id="list" class="list"></div>
+    <div id="status" class="status"></div>
+  </div>
+  <script>
+    const listEl = document.getElementById('list');
+    const statusEl = document.getElementById('status');
+    const addEntryBtn = document.getElementById('addEntry');
+    const addToProjectBtn = document.getElementById('addToProject');
+    const removeBtn = document.getElementById('remove');
+    const refreshBtn = document.getElementById('refresh');
+    let items = [];
+    let selectedId = null;
+    const makeId = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2));
+    const ext = (p) => {
+      const i = p.lastIndexOf('.');
+      return i >= 0 ? p.slice(i).toLowerCase() : '';
+    };
+    const isVideo = (p) => ['.mp4','.mov','.mkv','.avi','.webm','.wmv'].includes(ext(p));
+    const render = () => {
+      addToProjectBtn.disabled = !selectedId;
+      removeBtn.disabled = !selectedId;
+      listEl.innerHTML = '';
+      for (const item of items) {
+        const row = document.createElement('div');
+        row.className = 'row' + (item.id === selectedId ? ' sel' : '');
+        row.onclick = () => { selectedId = item.id; render(); };
+        row.ondblclick = async () => {
+          await window.electron.addMediaLibraryItemToProject(item.path);
+          statusEl.textContent = 'Added to project: ' + item.name;
+        };
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = item.name;
+        const path = document.createElement('div');
+        path.className = 'path';
+        path.textContent = item.path;
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const d = item.duration ? Math.round(item.duration) + 's' : 'n/a';
+        meta.textContent = 'Duration: ' + d;
+        row.appendChild(name);
+        row.appendChild(path);
+        row.appendChild(meta);
+        listEl.appendChild(row);
+      }
+    };
+    const reload = async () => {
+      items = await window.electron.loadMediaLibrary();
+      if (!items.some((x) => x.id === selectedId)) selectedId = null;
+      render();
+      statusEl.textContent = 'Library items: ' + items.length;
+    };
+    addEntryBtn.onclick = async () => {
+      try {
+        const paths = await window.electron.openVideoFiles();
+        if (!paths || !paths.length) return;
+        const existing = new Set(items.map((i) => i.path));
+        const next = items.slice();
+        for (const p of paths) {
+          if (!isVideo(p) || existing.has(p)) continue;
+          let meta = {};
+          try { meta = await window.electron.probeMediaFile(p); } catch {}
+          const base = p.split(/[\\\\/]/).pop() || 'clip';
+          next.push({
+            id: makeId(),
+            name: base.replace(/\\.[^.]+$/, ''),
+            path: p,
+            description: '',
+            duration: Number.isFinite(meta.duration) ? Number(meta.duration) : undefined,
+            videoCodec: meta.videoCodec,
+            audioCodec: meta.audioCodec,
+            audioChannels: Number.isFinite(meta.audioChannels) ? Number(meta.audioChannels) : undefined,
+            width: Number.isFinite(meta.width) ? Number(meta.width) : undefined,
+            height: Number.isFinite(meta.height) ? Number(meta.height) : undefined,
+          });
+          existing.add(p);
+        }
+        items = next;
+        await window.electron.saveMediaLibrary(items);
+        await reload();
+      } catch (err) {
+        statusEl.textContent = 'Failed to add entry.';
+      }
+    };
+    addToProjectBtn.onclick = async () => {
+      const sel = items.find((x) => x.id === selectedId);
+      if (!sel) return;
+      await window.electron.addMediaLibraryItemToProject(sel.path);
+      statusEl.textContent = 'Added to project: ' + sel.name;
+    };
+    removeBtn.onclick = async () => {
+      if (!selectedId) return;
+      items = items.filter((x) => x.id !== selectedId);
+      selectedId = null;
+      await window.electron.saveMediaLibrary(items);
+      await reload();
+    };
+    refreshBtn.onclick = reload;
+    reload();
+  </script>
+</body>
+</html>`;
+
+const openMediaLibraryWindow = async () => {
+  if (mediaLibraryWindow && !mediaLibraryWindow.isDestroyed()) {
+    mediaLibraryWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 900,
+    height: 640,
+    minWidth: 700,
+    minHeight: 520,
+    title: 'Media Library',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  mediaLibraryWindow = win;
+  win.on('closed', () => {
+    mediaLibraryWindow = null;
+  });
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildMediaLibraryHtml())}`);
 };
 
 async function createWindow(): Promise<void> {
@@ -658,6 +839,8 @@ const buildAppMenu = () => {
     {
       label: 'Media',
       submenu: [
+        { label: 'Open Media Library', click: () => { void openMediaLibraryWindow(); } },
+        { type: 'separator' },
         { label: 'Load Audio...', click: () => emitMenuAction('media:loadAudio') },
         { label: 'Add Videos...', click: () => emitMenuAction('media:addVideos') },
         { label: 'Add From Library...', click: () => emitMenuAction('media:addFromLibrary') },
@@ -826,13 +1009,15 @@ app.on('browser-window-created', (_event, window) => {
     }
   });
 });
-ipcMain.handle('project:defaultPath', async (): Promise<string> => {
+ipcMain.handle('project:defaultPath', async (_event, projectName?: string): Promise<string> => {
   const docs = app.getPath('documents');
   const baseDir = path.join(docs, 'vizmatic', 'Projects');
   await fs.mkdir(baseDir, { recursive: true });
   const ts = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  const name = `Project-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
+  const rawBase = typeof projectName === 'string' ? projectName.trim() : '';
+  const safeBase = (rawBase || 'Project').replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim() || 'Project';
+  const name = `${safeBase}-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
   return path.join(baseDir, name);
 });
 
@@ -893,6 +1078,15 @@ ipcMain.handle('mediaLibrary:save', async (_event, items: MediaLibraryItem[]): P
   const p = mediaLibraryPath();
   await fs.mkdir(path.dirname(p), { recursive: true });
   await fs.writeFile(p, JSON.stringify(items ?? [], null, 2), 'utf-8');
+});
+
+ipcMain.handle('mediaLibrary:openWindow', async (): Promise<void> => {
+  await openMediaLibraryWindow();
+});
+
+ipcMain.handle('mediaLibrary:addToProject', async (_event, filePath: string): Promise<void> => {
+  if (!filePath) return;
+  mainWindow?.webContents.send('mediaLibrary:addPath', filePath);
 });
 
 ipcMain.handle('mediaLibrary:probe', async (_event, filePath: string): Promise<Partial<MediaLibraryItem>> => {

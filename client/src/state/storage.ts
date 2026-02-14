@@ -147,11 +147,12 @@ const mockBridge: ElectronAPI = {
   async prepareRenderProject(projectJsonPath: string) {
     return projectJsonPath;
   },
-  async getDefaultProjectPath() {
+  async getDefaultProjectPath(projectName?: string) {
     const docs = 'C:/Users/Public/Documents';
     const ts = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
-    const name = `Project-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
+    const safeBase = (projectName ?? 'Project').replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim() || 'Project';
+    const name = `${safeBase}-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
     return `${docs}/vizmatic/Projects/${name}`;
   },
   async openProject() {
@@ -175,10 +176,19 @@ const mockBridge: ElectronAPI = {
   async probeMediaFile(_path: string) {
     return {};
   },
+  async openMediaLibraryWindow() {
+    // no-op
+  },
+  async addMediaLibraryItemToProject(_path: string) {
+    // no-op
+  },
   onProjectRequestSave(listener) {
     return () => void listener;
   },
   onMenuAction(listener) {
+    return () => void listener;
+  },
+  onMediaLibraryAddPath(listener) {
     return () => void listener;
   },
   setLayerMoveEnabled(_payload) {
@@ -340,8 +350,8 @@ export const notifyProjectSaved = (ok: boolean): void => {
   return getBridge().notifyProjectSaved(ok);
 };
 
-export const getDefaultProjectPath = async (): Promise<string> => {
-  return getBridge().getDefaultProjectPath();
+export const getDefaultProjectPath = async (projectName?: string): Promise<string> => {
+  return getBridge().getDefaultProjectPath(projectName);
 };
 
 export const saveProject = async (filePath: string, project: ProjectSchema): Promise<void> => {
@@ -358,4 +368,16 @@ export const saveMediaLibrary = async (items: MediaLibraryItem[]): Promise<void>
 
 export const probeMediaFile = async (path: string): Promise<Partial<MediaLibraryItem>> => {
   return getBridge().probeMediaFile(path);
+};
+
+export const openMediaLibraryWindow = async (): Promise<void> => {
+  return getBridge().openMediaLibraryWindow();
+};
+
+export const addMediaLibraryItemToProject = async (path: string): Promise<void> => {
+  return getBridge().addMediaLibraryItemToProject(path);
+};
+
+export const onMediaLibraryAddPath = (listener: (path: string) => void): (() => void) => {
+  return getBridge().onMediaLibraryAddPath(listener);
 };

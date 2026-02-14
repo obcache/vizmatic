@@ -94,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <a href="#overview">Overview</a>
           <a href="#usage">Usage</a>
           <a href="#gallery">Gallery</a>
+          <a href="samples.php">Samples</a>
           <a href="#support">Support</a>
           <a class="btn-success btn-icon" href="<?php echo htmlspecialchars($downloadUrl, ENT_QUOTES, 'UTF-8'); ?>" download aria-label="Download">
             <span class="material-symbols-rounded" aria-hidden="true">download</span>

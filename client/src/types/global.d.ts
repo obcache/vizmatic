@@ -25,10 +25,13 @@ export interface ElectronAPI {
   saveProject(filePath: string, project: import('common/project').ProjectSchema): Promise<void>;
   updateProjectDirty(dirty: boolean): Promise<void>;
   notifyProjectSaved(ok: boolean): void;
-  getDefaultProjectPath(): Promise<string>;
+  getDefaultProjectPath(projectName?: string): Promise<string>;
   loadMediaLibrary(): Promise<import('common/project').MediaLibraryItem[]>;
   saveMediaLibrary(items: import('common/project').MediaLibraryItem[]): Promise<void>;
   probeMediaFile(path: string): Promise<Partial<import('common/project').MediaLibraryItem>>;
+  openMediaLibraryWindow(): Promise<void>;
+  addMediaLibraryItemToProject(path: string): Promise<void>;
+  onMediaLibraryAddPath(listener: (path: string) => void): () => void;
   onProjectRequestSave(listener: () => void): () => void;
   onMenuAction(listener: (action: string) => void): () => void;
   setLayerMoveEnabled(payload: { up: boolean; down: boolean }): void;

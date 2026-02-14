@@ -25,6 +25,8 @@ import {
   loadMediaLibrary,
   saveMediaLibrary as persistMediaLibrary,
   probeMediaFile,
+  openMediaLibraryWindow,
+  onMediaLibraryAddPath,
   fileExists,
   onMenuAction,
   getMachineFingerprint,
@@ -179,6 +181,7 @@ type ParticleState = {
 };
 
 type LocalSession = SessionState & {
+  projectName?: string;
   audioPath?: string;
   videoPaths?: string[];
   videoIds?: string[];
@@ -191,7 +194,10 @@ type LocalSession = SessionState & {
   videoNames?: Record<string, string>;
 };
 
-const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'auto', canvasPreset: 'landscape', videoNames: {}, videoIds: [], clipEdits: {} };
+const UNTITLED_PROJECT_PREFIX = 'Untitled Project';
+const makeUntitledProjectName = (n: number) => `${UNTITLED_PROJECT_PREFIX} (${Math.max(1, n)})`;
+
+const defaultState: LocalSession = { projectName: makeUntitledProjectName(1), notes: '', playhead: 0, theme: 'auto', canvasPreset: 'landscape', videoNames: {}, videoIds: [], clipEdits: {} };
 const FONT_FACE_OPTIONS = [
   'Segoe UI',
   'Laritza',
@@ -251,7 +257,6 @@ const App = () => {
   const [, setStatus] = useState<string>('');
   const [, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [showRenderLogs, setShowRenderLogs] = useState<boolean>(false);
   const [renderElapsedMs, setRenderElapsedMs] = useState<number>(0);
   const [renderTotalMs, setRenderTotalMs] = useState<number>(0);
   const [isRendering, setIsRendering] = useState<boolean>(false);
@@ -283,7 +288,6 @@ const App = () => {
   const hasAudio = !!session.audioPath;
   const workflowLocked = !hasAudio;
   const renderLocked = isRendering;
-  const renderSectionLocked = workflowLocked || renderLocked;
   const canvasSize = useMemo(() => (
     canvasPreset === 'portrait'
       ? { width: 1080, height: 1920 }
@@ -315,8 +319,9 @@ const App = () => {
   const renderStartAtRef = useRef<number | null>(null);
   const USE_AUDIO_MOTION = false;
   const [library, setLibrary] = useState<MediaLibraryItem[]>([]);
-  const [librarySelectedId, setLibrarySelectedId] = useState<string | null>(null);
-  const [addVideoModalOpen, setAddVideoModalOpen] = useState<boolean>(false);
+  const [untitledProjectCounter, setUntitledProjectCounter] = useState<number>(2);
+  const [editingProjectName, setEditingProjectName] = useState<boolean>(false);
+  const [projectNameDraft, setProjectNameDraft] = useState<string>('');
   const [missingPaths, setMissingPaths] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ id: string; path: string; index: number; x: number; y: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ path: string; index: number; name: string } | null>(null);
@@ -328,7 +333,6 @@ const App = () => {
     videos: false,
     layers: false,
     project: false,
-    library: false,
   });
   const [licenseStatus, setLicenseStatus] = useState<{ licensed: boolean; key?: string; activatedAt?: string; name?: string; email?: string }>(() => {
     try {
@@ -349,14 +353,19 @@ const App = () => {
   const [machineId, setMachineId] = useState<string>('');
   const [machineIdModalOpen, setMachineIdModalOpen] = useState(false);
   const isLicensed = licenseStatus.licensed;
+  const libraryRef = useRef<MediaLibraryItem[]>([]);
   const loadLibrary = useCallback(async () => {
     try {
       const items = await loadMediaLibrary();
       setLibrary(items);
+      libraryRef.current = items;
     } catch (err) {
       console.warn('Failed to load media library', err);
     }
   }, []);
+  useEffect(() => {
+    libraryRef.current = library;
+  }, [library]);
 
   const assetHref = (rel: string) => {
     try {
@@ -387,6 +396,27 @@ const App = () => {
     } catch {}
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   };
+  const parseTrailingInteger = (value: string, prefix: string): number | null => {
+    const re = new RegExp(`^${prefix}\\s*\\((\\d+)\\)$`, 'i');
+    const hit = value.trim().match(re);
+    if (!hit) return null;
+    const parsed = Number(hit[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const nextClipName = useCallback((names: Record<string, string>) => {
+    let maxN = 0;
+    Object.values(names).forEach((name) => {
+      const hit = name.trim().match(/^clip-(\d+)$/i);
+      if (!hit) return;
+      const parsed = Number(hit[1]);
+      if (Number.isFinite(parsed)) maxN = Math.max(maxN, parsed);
+    });
+    return `clip-${maxN + 1}`;
+  }, []);
+  const getProjectName = useCallback((state?: LocalSession) => {
+    const value = (state ?? session).projectName?.trim();
+    return value || makeUntitledProjectName(1);
+  }, [session]);
   const hexToRgba = (hex: string, alpha: number) => {
     let c = hex.trim();
     if (c.startsWith('#')) c = c.slice(1);
@@ -778,6 +808,7 @@ const App = () => {
   const saveLibrary = async (items: MediaLibraryItem[]) => {
     console.info('[library] saveLibrary', { count: items.length });
     setLibrary(items);
+    libraryRef.current = items;
     try {
       await persistMediaLibrary(items);
       console.info('[library] persisted to disk');
@@ -794,6 +825,8 @@ const App = () => {
 
   const addLibraryEntryFromPath = async (filePath: string, name: string) => {
     console.info('[library] addLibraryEntryFromPath', filePath);
+    const existing = libraryRef.current.find((item) => item.path === filePath);
+    if (existing) return existing;
     let meta: Partial<MediaLibraryItem> = {};
     try {
       meta = await probeMediaFile(filePath);
@@ -812,7 +845,7 @@ const App = () => {
       width: meta.width ? Number(meta.width) : undefined,
       height: meta.height ? Number(meta.height) : undefined,
     };
-    await saveLibrary([...library, item]);
+    await saveLibrary([...libraryRef.current, item]);
     console.info('[library] added item', item);
     return item;
   };
@@ -869,7 +902,13 @@ const App = () => {
     let cancelled = false;
     loadSessionState()
       .then((state) => {
-        if (!cancelled && state) setSession({ ...(state as any), playhead: 0 });
+        if (!cancelled && state) {
+          const loaded = state as LocalSession;
+          const nextProjectName = (loaded.projectName ?? '').trim() || makeUntitledProjectName(1);
+          setSession({ ...defaultState, ...loaded, projectName: nextProjectName, playhead: 0 });
+          const untitledN = parseTrailingInteger(nextProjectName, UNTITLED_PROJECT_PREFIX);
+          if (untitledN != null) setUntitledProjectCounter((n) => Math.max(n, untitledN + 1));
+        }
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
 
@@ -926,8 +965,7 @@ const App = () => {
           void handleBrowseVideos();
           break;
         case 'media:addFromLibrary':
-          setAddVideoModalOpen(true);
-          setCollapsed((prev) => ({ ...prev, library: false }));
+          void openMediaLibraryWindow();
           break;
         case 'layer:addSpectrograph':
           startNewLayer('spectrograph');
@@ -954,7 +992,6 @@ const App = () => {
           setTimelineScroll(0);
           break;
         case 'view:toggleLogs':
-          setShowRenderLogs((prev) => !prev);
           break;
         case 'view:theme:dark':
           setThemeChoice('dark');
@@ -983,6 +1020,10 @@ const App = () => {
           break;
       }
     });
+    const offLibAdd = onMediaLibraryAddPath((path: string) => {
+      if (!path) return;
+      addVideoPaths([path]);
+    });
 
     // Cleanup only (not JSX)
     return () => {
@@ -994,6 +1035,7 @@ const App = () => {
       offCancelled?.();
       offReqSave?.();
       offMenu?.();
+      offLibAdd?.();
     };
   }, []);
 
@@ -1019,14 +1061,23 @@ const App = () => {
       }
       const paths = await openVideoFiles();
       if (!paths || paths.length === 0) return;
+      let assignedNames: Record<string, string> = {};
       setSession((prev) => {
         const existing = prev.videoPaths ?? [];
         const existingIds = prev.videoIds ?? [];
         const nextNames = { ...(prev.videoNames ?? {}) };
         const nextIds = [...existingIds];
-        paths.forEach(() => nextIds.push(makeId()));
+        paths.forEach((p) => {
+          nextIds.push(makeId());
+          if (!nextNames[p]) nextNames[p] = nextClipName(nextNames);
+        });
+        assignedNames = { ...nextNames };
         return { ...prev, videoPaths: [...existing, ...paths], videoIds: nextIds, videoNames: nextNames };
       });
+      for (const p of paths) {
+        const name = assignedNames[p] ?? (p.split(/[\\/]/).pop() || 'clip');
+        void addLibraryEntryFromPath(p, name);
+      }
       setStatus(`${paths.length} video file(s) added`);
       void updateProjectDirty(true);
     } catch (e: unknown) {
@@ -1040,30 +1091,25 @@ const App = () => {
       setStatus('Load audio before adding video segments.');
       return;
     }
+    let assignedNames: Record<string, string> = {};
     setSession((prev) => {
       const existing = prev.videoPaths ?? [];
       const existingIds = prev.videoIds ?? [];
       const nextNames = { ...(prev.videoNames ?? {}) };
       const nextIds = [...existingIds];
-      paths.forEach(() => nextIds.push(makeId()));
+      paths.forEach((p) => {
+        nextIds.push(makeId());
+        if (!nextNames[p]) nextNames[p] = nextClipName(nextNames);
+      });
+      assignedNames = { ...nextNames };
       return { ...prev, videoPaths: [...existing, ...paths], videoIds: nextIds, videoNames: nextNames };
     });
+    for (const p of paths) {
+      const name = assignedNames[p] ?? (p.split(/[\\/]/).pop() || 'clip');
+      void addLibraryEntryFromPath(p, name);
+    }
     setStatus(`${paths.length} video file(s) added`);
     void updateProjectDirty(true);
-  };
-
-  const getClipName = (filePath: string) => {
-    const suggested = filePath.split(/[\\/]/).pop() || 'Clip';
-    if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
-      try {
-        const res = window.prompt('Enter clip name (required)', suggested);
-        const trimmed = (res ?? suggested).trim();
-        if (trimmed) return trimmed;
-      } catch (err) {
-        console.warn('[library] prompt failed, using filename', err);
-      }
-    }
-    return suggested;
   };
 
   const formatClock = (seconds: number) => {
@@ -1085,21 +1131,6 @@ const App = () => {
     onApply(next);
   };
 
-  const handleAddVideoFromLibrary = (item: MediaLibraryItem) => {
-    if (!hasAudio) {
-      setStatus('Load audio before adding video segments.');
-      return;
-    }
-    setSession((prev) => {
-      const existing = prev.videoPaths ?? [];
-      const existingIds = prev.videoIds ?? [];
-      const nextNames = { ...(prev.videoNames ?? {}) };
-      nextNames[item.path] = item.name;
-      return { ...prev, videoPaths: [...existing, item.path], videoIds: [...existingIds, makeId()], videoNames: nextNames };
-    });
-    setStatus(`Added ${item.name} from library`);
-    void updateProjectDirty(true);
-  };
 
   const extractDroppedFiles = (dataTransfer: DataTransfer) => {
     const files = dataTransfer.files && dataTransfer.files.length ? Array.from(dataTransfer.files) : [];
@@ -1155,30 +1186,6 @@ const App = () => {
       addVideoPaths(videoPaths, audioPaths.length > 0);
     } else if (audioPaths.length === 0) {
       setStatus('Unsupported file type dropped.');
-    }
-  };
-
-  const handleBrowseAndAddToLibrary = async () => {
-    try {
-      const paths = await openVideoFiles();
-      console.info('[library] file picker returned', paths);
-      if (!paths || paths.length === 0) return;
-      let lastId: string | null = null;
-      for (const p of paths) {
-        const name = getClipName(p);
-        const item = await addLibraryEntryFromPath(p, name);
-        lastId = item.id;
-      }
-      if (lastId) {
-        setLibrarySelectedId(lastId);
-        setCollapsed((prev) => ({ ...prev, library: false }));
-        console.info('[library] last added selected', lastId);
-      } else {
-        console.info('[library] no items added after picker');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      console.error('[library] add flow failed', err);
     }
   };
 
@@ -1269,11 +1276,16 @@ const App = () => {
   };
 
   const handleNewProject = () => {
+    const nextUntitled = makeUntitledProjectName(untitledProjectCounter);
     setSession((prev) => ({
       ...defaultState,
+      projectName: nextUntitled,
       theme: prev.theme ?? 'dark',
       canvasPreset: prev.canvasPreset ?? 'landscape',
     }));
+    setUntitledProjectCounter((n) => n + 1);
+    setEditingProjectName(false);
+    setProjectNameDraft('');
     setSelectedLayerId(null);
     setLayerDialogOpen(false);
     setOverviewPeaks([]);
@@ -1288,6 +1300,22 @@ const App = () => {
   const toggleSection = (key: keyof typeof collapsed) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+  const beginProjectRename = useCallback(() => {
+    setProjectNameDraft(getProjectName());
+    setEditingProjectName(true);
+  }, [getProjectName]);
+  const applyProjectRename = useCallback(() => {
+    const nextName = projectNameDraft.trim() || getProjectName();
+    setSession((prev) => ({ ...prev, projectName: nextName }));
+    const untitledN = parseTrailingInteger(nextName, UNTITLED_PROJECT_PREFIX);
+    if (untitledN != null) setUntitledProjectCounter((n) => Math.max(n, untitledN + 1));
+    setEditingProjectName(false);
+    void updateProjectDirty(true);
+  }, [getProjectName, projectNameDraft]);
+  const cancelProjectRename = useCallback(() => {
+    setProjectNameDraft('');
+    setEditingProjectName(false);
+  }, []);
 
   const getClipLabel = useCallback((path: string) => {
     const names = session.videoNames ?? {};
@@ -1389,6 +1417,7 @@ const App = () => {
     const audio = session.audioPath ? { path: session.audioPath } : null;
     const playhead = typeof session.playhead === 'number' && Number.isFinite(session.playhead) ? session.playhead : 0;
     const metadata: Record<string, unknown> = {};
+    metadata.projectName = getProjectName(session);
     if (session.theme) metadata.theme = session.theme;
     if (canvasPreset) {
       metadata.canvas = { preset: canvasPreset, width: canvasSize.width, height: canvasSize.height };
@@ -1401,7 +1430,7 @@ const App = () => {
       layers: session.layers ?? [],
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     };
-  }, [canvasPreset, canvasSize.height, canvasSize.width, clipSegments, session.audioPath, session.playhead, session.layers, session.videoNames]);
+  }, [canvasPreset, canvasSize.height, canvasSize.width, clipSegments, getProjectName, session, session.audioPath, session.playhead, session.layers, session.videoNames]);
 
   useEffect(() => {
     if (!clipEditor) {
@@ -1483,6 +1512,35 @@ const App = () => {
     const clampedDuration = Math.min(nextDuration, maxDuration);
     updateClipEdit(id, { duration: clampedDuration });
   }, [audioDuration, clipSegments, updateClipEdit]);
+
+  const applyClipTrimDrag = useCallback((id: string, update: {
+    kind: 'start' | 'end';
+    mode: 'timeline' | 'source';
+    trimStart: number;
+    trimEnd: number;
+    duration: number;
+  }) => {
+    const seg = clipSegments.find((item) => item.id === id);
+    if (!seg) return;
+    const minLen = 0.05;
+    if (update.mode === 'source') {
+      if (update.kind === 'start') {
+        const maxStart = Math.max(0, (seg.trimEnd ?? update.trimEnd) - minLen);
+        const nextStart = Math.max(0, Math.min(maxStart, update.trimStart));
+        updateClipEdit(id, { trimStart: nextStart });
+      } else {
+        const maxEnd = seg.sourceDuration > 0 ? seg.sourceDuration : Number.POSITIVE_INFINITY;
+        const nextEnd = Math.max((seg.trimStart ?? update.trimStart) + minLen, Math.min(maxEnd, update.trimEnd));
+        updateClipEdit(id, { trimEnd: nextEnd });
+      }
+      return;
+    }
+    if (update.kind === 'start') {
+      applyTrimEdit(id, update.trimStart, update.duration);
+    } else {
+      applyDurationEdit(id, update.duration);
+    }
+  }, [applyDurationEdit, applyTrimEdit, clipSegments, updateClipEdit]);
 
   const handlePickImageForLayer = useCallback(async () => {
     try {
@@ -1641,6 +1699,9 @@ const App = () => {
       if (opened) {
         const project = opened.project as any;
         const clipList = Array.isArray(project?.clips) ? project.clips.filter((c: any) => c?.path) : [];
+        const loadedProjectName = String(project?.metadata?.projectName ?? '').trim();
+        const fallbackName = opened.path.split(/[\\/]/).pop()?.replace(/\.json$/i, '') || makeUntitledProjectName(1);
+        const nextProjectName = loadedProjectName || fallbackName;
         const nextVideos = clipList.map((c: any) => c?.path).filter(Boolean);
         const nextIds = nextVideos.map(() => makeId());
         const nextNames: Record<string, string> = {};
@@ -1666,6 +1727,7 @@ const App = () => {
         });
         setSession((prev) => ({
           ...prev,
+          projectName: nextProjectName,
           projectSavePath: opened.path,
           audioPath: project?.audio?.path ?? undefined,
           videoPaths: nextVideos,
@@ -1675,6 +1737,10 @@ const App = () => {
           playhead: typeof project?.playhead === 'number' ? project.playhead : 0,
           layers: Array.isArray(project?.layers) ? project.layers : [],
         }));
+        const untitledN = parseTrailingInteger(nextProjectName, UNTITLED_PROJECT_PREFIX);
+        if (untitledN != null) setUntitledProjectCounter((n) => Math.max(n, untitledN + 1));
+        setEditingProjectName(false);
+        setProjectNameDraft('');
         setStatus('Project loaded');
         await updateProjectDirty(false);
       }
@@ -1689,7 +1755,7 @@ const App = () => {
       const project = buildProjectFromSession();
       let target = session.projectSavePath;
       if (!target) {
-        const defaultPath = await getDefaultProjectPath();
+        const defaultPath = await getDefaultProjectPath(getProjectName());
         target = await chooseProjectSavePath(defaultPath);
         if (!target) return;
         setSession((prev) => ({ ...prev, projectSavePath: target }));
@@ -1707,7 +1773,7 @@ const App = () => {
   const handleSaveProjectAs = async () => {
     if (!ensureLicensed()) return;
     try {
-      const defaultPath = session.projectSavePath ?? await getDefaultProjectPath();
+      const defaultPath = session.projectSavePath ?? await getDefaultProjectPath(getProjectName());
       const target = await chooseProjectSavePath(defaultPath);
       if (!target) return;
       setSession((prev) => ({ ...prev, projectSavePath: target }));
@@ -1728,7 +1794,7 @@ const App = () => {
       const project = buildProjectFromSession();
       let target = session.projectSavePath;
       if (!target) {
-        const defaultPath = await getDefaultProjectPath();
+        const defaultPath = await getDefaultProjectPath(getProjectName());
         target = await chooseProjectSavePath(defaultPath);
         if (!target) {
           setStatus('Render cancelled: no project path selected');
@@ -2290,7 +2356,53 @@ const App = () => {
               workCtx.fillRect(xPos, yPos, barWidth, h);
             }
           }
-          const finalCanvas = workCanvas;
+          const buildMirroredCanvas = (source: HTMLCanvasElement, mirrorX: boolean, mirrorY: boolean): HTMLCanvasElement => {
+            if (!mirrorX && !mirrorY) return source;
+            const out = document.createElement('canvas');
+            out.width = source.width;
+            out.height = source.height;
+            const octx = out.getContext('2d');
+            if (!octx) return source;
+            const w = source.width;
+            const h = source.height;
+            const hw = Math.floor(w / 2);
+            const hh = Math.floor(h / 2);
+            octx.clearRect(0, 0, w, h);
+            if (mirrorX && mirrorY) {
+              // Mirror from the top-left quadrant into all 4 quadrants.
+              octx.drawImage(source, 0, 0, hw, hh, 0, 0, hw, hh);
+              octx.save();
+              octx.scale(-1, 1);
+              octx.drawImage(source, 0, 0, hw, hh, -w, 0, hw, hh);
+              octx.restore();
+              octx.save();
+              octx.scale(1, -1);
+              octx.drawImage(source, 0, 0, hw, hh, 0, -h, hw, hh);
+              octx.restore();
+              octx.save();
+              octx.scale(-1, -1);
+              octx.drawImage(source, 0, 0, hw, hh, -w, -h, hw, hh);
+              octx.restore();
+              return out;
+            }
+            if (mirrorX) {
+              // Left half remains; right half is mirrored replacement.
+              octx.drawImage(source, 0, 0, hw, h, 0, 0, hw, h);
+              octx.save();
+              octx.scale(-1, 1);
+              octx.drawImage(source, 0, 0, hw, h, -w, 0, hw, h);
+              octx.restore();
+              return out;
+            }
+            // Top half remains; bottom half is mirrored replacement.
+            octx.drawImage(source, 0, 0, w, hh, 0, 0, w, hh);
+            octx.save();
+            octx.scale(1, -1);
+            octx.drawImage(source, 0, 0, w, hh, 0, -h, w, hh);
+            octx.restore();
+            return out;
+          };
+          let finalCanvas = workCanvas;
           const glowAmount = layer.glowAmount ?? 0;
           const glowOpacity = layer.glowOpacity ?? 0.4;
           const glowColor = layer.glowColor ?? layer.color ?? '#ffffff';
@@ -2304,27 +2416,18 @@ const App = () => {
           if (reverse) ctx.scale(-1, 1);
           ctx.globalAlpha = opacity;
           if (pathMode === 'circular') {
-            const drawCircular = (flipX: boolean, flipY: boolean) => {
-              ctx.save();
-              ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
-              const radius = Math.min(drawW, drawH) / 2;
+            const circleCanvas = document.createElement('canvas');
+            circleCanvas.width = barCanvasW;
+            circleCanvas.height = barCanvasH;
+            const circleCtx = circleCanvas.getContext('2d');
+            if (circleCtx) {
+              circleCtx.clearRect(0, 0, barCanvasW, barCanvasH);
+              circleCtx.translate(barCanvasW / 2, barCanvasH / 2);
+              const radius = Math.min(barCanvasW, barCanvasH) / 2;
               const innerRadius = radius * 0.1;
               const angleStep = (Math.PI * 2) / barCount;
-              if (shadowDistance > 0) {
-                ctx.save();
-                ctx.shadowOffsetX = shadowDistance;
-                ctx.shadowOffsetY = shadowDistance;
-                ctx.shadowColor = shadowColor;
-                ctx.shadowBlur = 0;
-                ctx.restore();
-              }
-              if (glowAmount > 0) {
-                ctx.shadowColor = glowColor;
-                ctx.shadowBlur = glowAmount;
-                ctx.globalAlpha = glowOpacity;
-              }
-              ctx.fillStyle = fill || gradient || '#00ff7a';
-              ctx.strokeStyle = fill || gradient || '#00ff7a';
+              circleCtx.fillStyle = fill || gradient || '#00ff7a';
+              circleCtx.strokeStyle = fill || gradient || '#00ff7a';
               for (let i = 0; i < barCount; i++) {
                 const v = sampleValue(i);
                 const mag = Math.max(1, scaleAmp(v) * (radius - innerRadius));
@@ -2337,64 +2440,54 @@ const App = () => {
                   const dotR = Math.max(2, radius * 0.015 * barWidthPct);
                   const rx = Math.cos(angle) * outer;
                   const ry = Math.sin(angle) * outer;
-                  ctx.beginPath();
-                  ctx.arc(rx, ry, dotR, 0, Math.PI * 2);
-                  ctx.fill();
+                  circleCtx.beginPath();
+                  circleCtx.arc(rx, ry, dotR, 0, Math.PI * 2);
+                  circleCtx.fill();
                 } else if (mode === 'line') {
-                  ctx.lineWidth = Math.max(1, radius * 0.01 * barWidthPct);
-                  ctx.beginPath();
-                  ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
-                  ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
-                  ctx.stroke();
+                  circleCtx.lineWidth = Math.max(1, radius * 0.01 * barWidthPct);
+                  circleCtx.beginPath();
+                  circleCtx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+                  circleCtx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+                  circleCtx.stroke();
                 } else {
                   const start = startAngle;
                   const end = startAngle + thickness;
-                  ctx.beginPath();
-                  ctx.arc(0, 0, outer, start, end, false);
-                  ctx.arc(0, 0, inner, end, start, true);
-                  ctx.closePath();
-                  ctx.fill();
+                  circleCtx.beginPath();
+                  circleCtx.arc(0, 0, outer, start, end, false);
+                  circleCtx.arc(0, 0, inner, end, start, true);
+                  circleCtx.closePath();
+                  circleCtx.fill();
                 }
               }
-              ctx.restore();
-            };
-            drawCircular(false, false);
-            if (layer.mirrorX) drawCircular(true, false);
-            if (layer.mirrorY) drawCircular(false, true);
-            if (layer.mirrorX && layer.mirrorY) drawCircular(true, true);
-          } else {
-            if (shadowDistance > 0) {
-              ctx.save();
-              ctx.shadowOffsetX = shadowDistance;
-              ctx.shadowOffsetY = shadowDistance;
-              ctx.shadowColor = shadowColor;
-              ctx.shadowBlur = 0;
-              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-              ctx.restore();
-            }
-            if (outlineWidth > 0) {
-              ctx.save();
-              ctx.shadowColor = outlineColor;
-              ctx.shadowBlur = outlineWidth;
-              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-              ctx.restore();
-            }
-            if (glowAmount > 0) {
-              ctx.save();
-              ctx.shadowColor = glowColor;
-              ctx.shadowBlur = glowAmount;
-              ctx.globalAlpha = glowOpacity;
-              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-              ctx.restore();
-            }
-            ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-            if (layer.mirrorX || layer.mirrorY) {
-              ctx.save();
-              ctx.scale(layer.mirrorX ? -1 : 1, layer.mirrorY ? -1 : 1);
-              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-              ctx.restore();
+              finalCanvas = circleCanvas;
             }
           }
+          finalCanvas = buildMirroredCanvas(finalCanvas, !!layer.mirrorX, !!layer.mirrorY);
+          if (shadowDistance > 0) {
+            ctx.save();
+            ctx.shadowOffsetX = shadowDistance;
+            ctx.shadowOffsetY = shadowDistance;
+            ctx.shadowColor = shadowColor;
+            ctx.shadowBlur = 0;
+            ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.restore();
+          }
+          if (outlineWidth > 0) {
+            ctx.save();
+            ctx.shadowColor = outlineColor;
+            ctx.shadowBlur = outlineWidth;
+            ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.restore();
+          }
+          if (glowAmount > 0) {
+            ctx.save();
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = glowAmount;
+            ctx.globalAlpha = Math.min(1, Math.max(0, glowOpacity));
+            ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.restore();
+          }
+          ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
           ctx.restore();
         } else {
           const am = audioMotionRef.current;
@@ -2446,14 +2539,22 @@ const App = () => {
         ctx.globalAlpha = opacity;
         if (layer.invert) ctx.filter = 'invert(1)';
         if (shadowDistance > 0) {
+          ctx.save();
           ctx.shadowColor = shadowColor;
           ctx.shadowBlur = Math.max(0, shadowDistance);
           ctx.shadowOffsetX = shadowDistance;
           ctx.shadowOffsetY = shadowDistance;
+          ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+          ctx.restore();
         }
         if (glowAmount > 0) {
+          ctx.save();
           ctx.shadowColor = glowColor;
           ctx.shadowBlur = glowAmount * 2;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+          ctx.restore();
         }
         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
         if (outlineWidth > 0) {
@@ -2544,16 +2645,23 @@ const App = () => {
         ctx.font = `${fontSize}px ${layer.font ?? 'Segoe UI'}, sans-serif`;
         ctx.fillStyle = layer.color ?? '#ffffff';
         const shadowOpacity = layer.glowOpacity ?? 0.4;
-        if (layer.glowAmount) {
-          ctx.shadowColor = `${layer.glowColor ?? layer.color ?? '#ffffff'}${Math.round(shadowOpacity * 255).toString(16).padStart(2, '0')}`;
-          ctx.shadowBlur = layer.glowAmount ?? 0;
-        } else {
-          ctx.shadowBlur = 0;
-        }
         if (layer.shadowDistance) {
+          ctx.save();
           ctx.shadowOffsetX = layer.shadowDistance;
           ctx.shadowOffsetY = layer.shadowDistance;
           ctx.shadowColor = layer.shadowColor ?? '#000000';
+          ctx.shadowBlur = 0;
+          ctx.fillText(layer.text ?? 'Text', -drawW / 2, 0);
+          ctx.restore();
+        }
+        if (layer.glowAmount) {
+          ctx.save();
+          ctx.shadowColor = `${layer.glowColor ?? layer.color ?? '#ffffff'}${Math.round(shadowOpacity * 255).toString(16).padStart(2, '0')}`;
+          ctx.shadowBlur = layer.glowAmount ?? 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          ctx.fillText(layer.text ?? 'Text', -drawW / 2, 0);
+          ctx.restore();
         }
         ctx.strokeStyle = layer.outlineColor ?? '#000000';
         ctx.lineWidth = Math.max(0, layer.outlineWidth ?? 0);
@@ -2583,6 +2691,16 @@ const App = () => {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [renderPreviewFrame]);
+
+  useEffect(() => {
+    if (collapsed.preview) return;
+    // Let layout settle after expand/collapse before forcing a redraw.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void renderPreviewFrame();
+      });
+    });
+  }, [collapsed.preview, previewHeight, renderPreviewFrame]);
 
   useEffect(() => {
     const el = previewContainerRef.current;
@@ -2698,7 +2816,58 @@ const App = () => {
         {/* Preview Row */}
         <div className="right section-block" style={{ opacity: renderLocked ? 0.8 : 1 }}>
           <div className="section-header">
-            <h2 style={{ margin: '1px 0px' }}>PROJECT</h2>
+            {editingProjectName ? (
+              <input
+                type="text"
+                value={projectNameDraft}
+                onChange={(e) => setProjectNameDraft(e.target.value)}
+                onBlur={applyProjectRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyProjectRename();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelProjectRename();
+                  }
+                }}
+                autoFocus
+                style={{
+                  margin: '1px 0px',
+                  minWidth: 200,
+                  maxWidth: 360,
+                  height: 28,
+                  padding: '2px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--panel)',
+                  color: 'var(--text)',
+                  fontSize: 28,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+                aria-label="Project name"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={beginProjectRename}
+                title="Rename project"
+                style={{
+                  margin: '1px 0px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  fontSize: 28,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  cursor: 'text',
+                  padding: 0,
+                }}
+              >
+                {getProjectName()}
+              </button>
+            )}
             <button className="pill-btn pill-btn--icon" type="button" onClick={handleNewProject} title="New Project" aria-label="New Project" disabled={renderLocked}>
               <MaterialIcon name="note_add" ariaHidden />
             </button>
@@ -2711,39 +2880,32 @@ const App = () => {
             <button className="pill-btn pill-btn--icon" type="button" onClick={handleSaveProject} title="Save Project" aria-label="Save Project" disabled={projectLocked || renderLocked}>
               <MaterialIcon name="save" ariaHidden />
             </button>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                className="pill-btn pill-btn--icon"
-                type="button"
-                aria-label={canvasPreset === 'landscape' ? 'Landscape' : 'Portrait'}
-                onClick={() => setCanvasPreset(canvasPreset === 'landscape' ? 'portrait' : 'landscape')}
-                style={{ borderColor: 'var(--border)' }}
-                title={canvasPreset === 'landscape' ? 'Landscape' : 'Portrait'}
-                disabled={renderLocked}
-              >
-                <MaterialIcon name={canvasPreset === 'landscape' ? 'crop_landscape' : 'crop_portrait'} ariaHidden />
+            <button className="pill-btn pill-btn--icon" type="button" onClick={() => void openMediaLibraryWindow()} title="Open Media Library" aria-label="Open Media Library" disabled={renderLocked}>
+              <MaterialIcon name="video_library" ariaHidden />
+            </button>
+            <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px 0 2px' }} />
+            {(!isRendering) && (
+              <button className="pill-btn pill-btn--icon" type="button" onClick={handleStartRender} disabled={projectLocked || !session.projectSavePath || renderLocked} title="Render" aria-label="Render">
+                <MaterialIcon name="movie" ariaHidden />
               </button>
-              {(!isRendering) && (
-                <button className="pill-btn pill-btn--icon" type="button" onClick={handleStartRender} disabled={projectLocked || !session.projectSavePath || renderLocked} title="Render" aria-label="Render">
-                  <MaterialIcon name="movie" ariaHidden />
-                </button>
-              )}
-              {(isRendering) && (
-                <button className="pill-btn pill-btn--icon" type="button" onClick={() => cancelRender()} disabled={projectLocked || !isRendering} title="Cancel Render" aria-label="Cancel Render">
-                  <MaterialIcon name="cancel" ariaHidden />
-                </button>
-              )}
-              {(isRendering || renderTotalMs > 0) && (
-                <div style={{ height: 18, width: 160, background: '#222', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-                  <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderTotalMs > 0 ? (renderElapsedMs / renderTotalMs) * 100 : 0))).toFixed(1)}%`, background: '#3f51b5' }} />
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 11, color: '#d8def6', fontWeight: 600 }}>
-                    <span>Elapsed {formatClock(renderElapsedMs / 1000)}</span>
-                    {isRendering && (
-                      <span>[ Task {renderElapsedMs > 0 ? 2 : 1} of 2 ]</span>
-                    )}
-                  </div>
+            )}
+            {(isRendering) && (
+              <button className="pill-btn pill-btn--icon" type="button" onClick={() => cancelRender()} disabled={projectLocked || !isRendering} title="Cancel Render" aria-label="Cancel Render">
+                <MaterialIcon name="cancel" ariaHidden />
+              </button>
+            )}
+            {(isRendering || renderTotalMs > 0) && (
+              <div style={{ height: 18, width: 160, background: '#222', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+                <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderTotalMs > 0 ? (renderElapsedMs / renderTotalMs) * 100 : 0))).toFixed(1)}%`, background: '#3f51b5' }} />
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 11, color: '#d8def6', fontWeight: 600 }}>
+                  <span>Elapsed {formatClock(renderElapsedMs / 1000)}</span>
+                  {isRendering && (
+                    <span>[ Task {renderElapsedMs > 0 ? 2 : 1} of 2 ]</span>
+                  )}
                 </div>
-              )}
+              </div>
+            )}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <button className="collapse-btn" type="button" onClick={() => toggleSection('preview')} aria-label="Toggle preview" disabled={renderLocked}>
                 <MaterialIcon name={collapsed.preview ? 'expand_more' : 'expand_less'} ariaHidden />
               </button>
@@ -2755,8 +2917,8 @@ const App = () => {
                   top: 2,
                   bottom: 2,
                   left: 2,
-                  right: 84,
-                  background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                  right: 44,
+                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.7), rgba(239, 68, 68, 0.7))',
                   color: '#0b0f16',
                   fontSize: 12,
                   fontWeight: 700,
@@ -2824,6 +2986,30 @@ const App = () => {
         <div className="right section-block" style={{ opacity: renderLocked ? 0.35 : (hasAudio ? 1 : 0.6), pointerEvents: renderLocked ? 'none' : 'auto' }}>
           <div className="section-header">
             <h2 style={{ margin: 0 }}>STORYBOARD</h2>
+            <div className="orientation-pill" role="group" aria-label="Canvas orientation" title="Canvas Orientation">
+              <button
+                className={`orientation-segment ${canvasPreset === 'landscape' ? 'is-active' : ''}`}
+                type="button"
+                aria-label="Landscape"
+                aria-pressed={canvasPreset === 'landscape'}
+                onClick={() => setCanvasPreset('landscape')}
+                title="Landscape (16:9)"
+                disabled={renderLocked}
+              >
+                <MaterialIcon name="crop_16_9" filled={canvasPreset === 'landscape'} ariaHidden />
+              </button>
+              <button
+                className={`orientation-segment ${canvasPreset === 'portrait' ? 'is-active' : ''}`}
+                type="button"
+                aria-label="Portrait"
+                aria-pressed={canvasPreset === 'portrait'}
+                onClick={() => setCanvasPreset('portrait')}
+                title="Portrait (9:16)"
+                disabled={renderLocked}
+              >
+                <MaterialIcon name="crop_9_16" filled={canvasPreset === 'portrait'} ariaHidden />
+              </button>
+            </div>
             <PillIconButton icon="video_call" label="Add Video" onClick={handleBrowseVideos} disabled={!hasAudio} />
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2939,6 +3125,7 @@ const App = () => {
                       trimStart: seg.trimStart,
                       trimEnd: seg.trimEnd,
                       sourceDuration: seg.sourceDuration,
+                      fillMethod: seg.fillMethod,
                       missing: missingPaths.has(seg.path),
                     }))}
                     totalDuration={timelineDuration}
@@ -2947,8 +3134,7 @@ const App = () => {
                     playhead={session.playhead ?? 0}
                     onReorder={handleReorderClips}
                     onRemove={removeClipAt}
-                    onTrimChange={(id, trimStart, duration) => applyTrimEdit(id, trimStart, duration)}
-                    onDurationChange={(id, duration) => applyDurationEdit(id, duration)}
+                    onTrimDrag={(id, update) => applyClipTrimDrag(id, update)}
                     onContextMenu={(seg, x, y) => openClipContextMenu(seg.id, seg.path, seg.index, x, y)}
                     onDoubleClick={(seg) => handleClipEdit(seg.id, seg.path, seg.index)}
                   />
@@ -3091,8 +3277,8 @@ const App = () => {
                         value={layerDraft.type ?? 'spectrograph'}
                         onChange={(e) => {
                           const nextType = e.target.value as LayerType;
-                          setLayerDraft((prev) => ({
-                            ...prev,
+                          const prev = layerDraft;
+                          updateLayerDraftField({
                             type: nextType,
                             mode: nextType === 'spectrograph' ? (prev.mode as any) ?? 'bar' : undefined,
                             pathMode: nextType === 'spectrograph' ? (prev.pathMode as any) ?? 'straight' : undefined,
@@ -3118,7 +3304,7 @@ const App = () => {
                             opacityMax: nextType === 'particles' ? (prev.opacityMax ?? 0.9) : undefined,
                             audioResponsive: nextType === 'particles' ? (prev.audioResponsive ?? true) : undefined,
                             particleCount: nextType === 'particles' ? (prev.particleCount ?? 200) : undefined,
-                          }));
+                          } as unknown as Partial<LayerConfig>);
                         }}
                       >
                         <option value="spectrograph">Standard Spectrograph</option>
@@ -3641,132 +3827,6 @@ const App = () => {
           )}
         </div>
 
-        {/* Media Library */}
-        <div className="right section-block" style={{ opacity: workflowLocked || renderLocked ? 0.35 : 1, pointerEvents: workflowLocked || renderLocked ? 'none' : 'auto' }}>
-          <div className="section-header">
-            <h2 style={{ margin: 0 }}>MEDIA LIBRARY</h2>
-            <button className="pill-btn" type="button" onClick={() => setAddVideoModalOpen(true)}>
-              <span>Add Entry</span>
-            </button>
-            <button className="pill-btn" type="button" disabled={!librarySelectedId} onClick={async () => {
-              if (!librarySelectedId) return;
-              const next = library.filter((i) => i.id !== librarySelectedId);
-              await saveLibrary(next);
-              setLibrarySelectedId(null);
-            }}>
-              <span>Remove</span>
-            </button>
-            <div style={{ marginLeft: 'auto' }}>
-              <button className="collapse-btn" type="button" onClick={() => toggleSection('library')} aria-label="Toggle library">
-                <MaterialIcon name={collapsed.library ? 'expand_more' : 'expand_less'} ariaHidden />
-              </button>
-            </div>
-          </div>
-          {!collapsed.library && (
-            <div className="section-body">
-              {library.length === 0 && <div className="muted">No items in library.</div>}
-              {library.length > 0 && (
-                <>
-                  <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
-                    {library.map((item) => (
-                      <div
-                        key={item.id}
-                        onClick={() => setLibrarySelectedId(item.id)}
-                        style={{
-                          padding: '6px 8px',
-                          cursor: 'pointer',
-                          background: missingPaths.has(item.path)
-                            ? '#4a2a2a'
-                            : (librarySelectedId === item.id ? 'var(--panel-alt)' : 'transparent'),
-                          borderBottom: '1px solid var(--border)',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <button
-                            className="pill-btn pill-btn--compact"
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddVideoFromLibrary(item);
-                            }}
-                          >
-                            Add
-                          </button>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600 }}>{item.name}</div>
-                            <div className="muted" style={{ fontSize: 12 }}>{item.path}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {librarySelectedId && (() => {
-                    const sel = library.find((i) => i.id === librarySelectedId);
-                    if (!sel) return null;
-                    return (
-                      <div style={{ marginTop: 8, padding: 8, border: '1px solid var(--border)', borderRadius: 6 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>{sel.name}</div>
-                        {sel.description && <div className="muted">{sel.description}</div>}
-                        <div className="muted" style={{ fontSize: 12 }}>Path: {sel.path}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>Duration: {sel.duration ? `${Math.round(sel.duration)}s` : 'n/a'}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>Video: {sel.videoCodec ?? 'n/a'} {sel.width && sel.height ? `(${sel.width}x${sel.height})` : ''}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>Audio: {sel.audioCodec ?? 'n/a'} {sel.audioChannels ? `(${sel.audioChannels}ch)` : ''}</div>
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-
-
-        {addVideoModalOpen && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-            <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 8, padding: 16, width: 520, maxHeight: '70vh', overflow: 'auto' }}>
-              <h3 style={{ marginTop: 0 }}>Add Video</h3>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                <button className="pill-btn" type="button" onClick={() => { setCollapsed((prev) => ({ ...prev, library: false })); }}>
-                  <span>Pick From Library Below</span>
-                </button>
-                <button className="pill-btn" type="button" onClick={handleBrowseAndAddToLibrary}>
-                  <span>Browse Files</span>
-                </button>
-                <button className="pill-btn" type="button" onClick={() => setAddVideoModalOpen(false)}>
-                  <span>Close</span>
-                </button>
-              </div>
-              <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
-                {library.map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={() => setLibrarySelectedId(item.id)}
-                    onDoubleClick={() => handleAddVideoFromLibrary(item)}
-                    style={{
-                      padding: '6px 8px',
-                      cursor: 'pointer',
-                      background: librarySelectedId === item.id ? 'var(--panel-alt)' : 'transparent',
-                      borderBottom: '1px solid var(--border)',
-                    }}
-                  >
-                    <div style={{ fontWeight: 600 }}>{item.name}</div>
-                    <div className="muted" style={{ fontSize: 12 }}>{item.path}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button className="pill-btn" type="button" disabled={!librarySelectedId} onClick={() => {
-                  const sel = library.find((i) => i.id === librarySelectedId);
-                  if (sel) handleAddVideoFromLibrary(sel);
-                }}>
-                  <span>Use Selected</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {clipEditor && clipEditorDraft && (
           <div
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}
@@ -4118,28 +4178,52 @@ const App = () => {
           </div>
         )}
 
-        <div className="right section-block" style={{ opacity: renderSectionLocked ? 0.35 : 1, pointerEvents: renderSectionLocked ? 'none' : 'auto' }}>
-          <div className="section-header">
-            <h2 style={{ margin: 0 }}>RENDER LOGS</h2>
-            <div style={{ marginLeft: 'auto' }}>
-              <button className="collapse-btn" type="button" onClick={() => setShowRenderLogs((v) => !v)} aria-label="Toggle logs">
-                <MaterialIcon name={showRenderLogs ? 'expand_less' : 'expand_more'} ariaHidden />
+      </div>
+
+      {isRendering && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 1150,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              width: 680,
+              maxWidth: '94vw',
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              padding: 14,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+              <h3 style={{ margin: 0 }}>Rendering Project</h3>
+              <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>
+                Elapsed {formatClock(renderElapsedMs / 1000)}
+              </div>
+              <button className="pill-btn pill-btn--icon" type="button" title="Cancel Render" aria-label="Cancel Render" onClick={() => cancelRender()}>
+                <MaterialIcon name="cancel" ariaHidden />
               </button>
             </div>
-          </div>
-          {showRenderLogs && (
-            <div className="section-body">
-              <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
-                {logs.length === 0 ? (
-                  <div style={{ color: '#777' }}>Render logs will appear here...</div>
-                ) : (
-                  logs.map((l, i) => (<div key={i}>{l}</div>))
-                )}
-              </div>
+            <div style={{ height: 18, background: '#222', borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
+              <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderTotalMs > 0 ? (renderElapsedMs / renderTotalMs) * 100 : 0))).toFixed(1)}%`, background: '#3f51b5' }} />
             </div>
-          )}
+            <div style={{ padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 220, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
+              {logs.length === 0 ? (
+                <div style={{ color: '#777' }}>Render logs will appear here...</div>
+              ) : (
+                logs.slice(-200).map((l, i) => (<div key={i}>{l}</div>))
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {contextMenu && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100 }} onClick={closeContextMenu}>
