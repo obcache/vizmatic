@@ -9,7 +9,7 @@
   --accent: #3f51b5;
   --btn-bg: #12151b;
   --btn-bg-hover: #242b38;
-  --font-ui: 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+  --font-ui: 'Laritza', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
 }
 
 @font-face {
@@ -566,7 +566,7 @@ select.pill-btn {
   justify-content: center;
 }
 .pill-btn--icon .material-symbols-outlined {
-  font-size: 18px;
+  font-size: 22px;
 }
 
 .pill-btn--compact {
@@ -579,8 +579,8 @@ select.pill-btn {
 }
 
 .pill-btn__img {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
   display: block;
 }
@@ -647,11 +647,15 @@ select.pill-btn {
   background: var(--panel);
   border: 0px solid var(--border);
   border-radius: 10px;
-  padding: 0px 6px;
+  padding: 0px 9px 0px 0px;
   position: relative;
+  letter-spacing: 1.4;
 }
 .section-header h2 {
-  font-size: 19px;
+  padding: 6px 6px 0px 8px;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 1.4;
   line-height: 1.1;
 }
 .section-header .pill-btn,
@@ -705,4 +709,316 @@ select.pill-btn {
   font-weight: 600;
   font-size: 12px;
   backdrop-filter: blur(2px);
+}
+
+@font-face {
+  font-family: 'Android Hollow';
+  src: url('/fonts/Android Hollow.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Android Italic';
+  src: url('/fonts/Android Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Android Scratch';
+  src: url('/fonts/Android Scratch.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Android';
+  src: url('/fonts/Android.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Anita Semi Square';
+  src: url('/fonts/Anita Semi Square.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Asenine_';
+  src: url('/fonts/Asenine_.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Asenst__';
+  src: url('/fonts/Asenst__.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Asent___';
+  src: url('/fonts/Asent___.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Asenw___';
+  src: url('/fonts/Asenw___.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Assassin$';
+  src: url('/fonts/Assassin$.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Atiba';
+  src: url('/fonts/Atiba.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Blowbrush';
+  src: url('/fonts/Blowbrush.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bowhouse-Black';
+  src: url('/fonts/Bowhouse-Black.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bowhouse-Bold';
+  src: url('/fonts/Bowhouse-Bold.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bowhouse-Light';
+  src: url('/fonts/Bowhouse-Light.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bowhouse-Regular';
+  src: url('/fonts/Bowhouse-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cerebro Autodestructivo';
+  src: url('/fonts/Cerebro Autodestructivo.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cerebro';
+  src: url('/fonts/Cerebro.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fightt__';
+  src: url('/fonts/Fightt__.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Ilits';
+  src: url('/fonts/Ilits.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Kremlin';
+  src: url('/fonts/Kremlin.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Labtsebi';
+  src: url('/fonts/Labtsebi.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Labtsec_';
+  src: url('/fonts/Labtsec_.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Labtsecb';
+  src: url('/fonts/Labtsecb.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Labtseci';
+  src: url('/fonts/Labtseci.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Labtsecs';
+  src: url('/fonts/Labtsecs.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Labtsecw';
+  src: url('/fonts/Labtsecw.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic-Bold';
+  src: url('/fonts/OpenDyslexic-Bold.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic-BoldItalic';
+  src: url('/fonts/OpenDyslexic-BoldItalic.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic-Italic';
+  src: url('/fonts/OpenDyslexic-Italic.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic-Regular';
+  src: url('/fonts/OpenDyslexic-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexicAlta-Bold';
+  src: url('/fonts/OpenDyslexicAlta-Bold.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexicAlta-BoldItalic';
+  src: url('/fonts/OpenDyslexicAlta-BoldItalic.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexicAlta-Italic';
+  src: url('/fonts/OpenDyslexicAlta-Italic.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexicAlta-Regular';
+  src: url('/fonts/OpenDyslexicAlta-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexicMono-Regular';
+  src: url('/fonts/OpenDyslexicMono-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Robotech Gp';
+  src: url('/fonts/Robotech Gp.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Tonight';
+  src: url('/fonts/Tonight.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Werewolf';
+  src: url('/fonts/Werewolf.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }

@@ -39,7 +39,7 @@ import OverviewWaveform from './components/OverviewWaveform';
 import Storyboard from './components/Storyboard';
 import VolumeSlider from './components/VolumeSlider';
 import MaterialIcon from './components/MaterialIcon';
-import type { ProjectSchema, LayerConfig, LayerType } from 'common/project';
+import type { ProjectSchema, LayerConfig, LayerType, TextLayer } from 'common/project';
 import type { MediaLibraryItem } from 'common/project';
 type Theme = 'dark' | 'light' | 'auto';
 type WebAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
@@ -250,6 +250,45 @@ const FONT_FACE_OPTIONS = [
   'Metro City',
   'Modern Future',
   'Online',
+  'Android Hollow',
+  'Android Italic',
+  'Android Scratch',
+  'Android',
+  'Anita Semi Square',
+  'Asenine_',
+  'Asenst__',
+  'Asent___',
+  'Asenw___',
+  'Assassin$',
+  'Atiba',
+  'Blowbrush',
+  'Bowhouse-Black',
+  'Bowhouse-Bold',
+  'Bowhouse-Light',
+  'Bowhouse-Regular',
+  'Cerebro Autodestructivo',
+  'Cerebro',
+  'Fightt__',
+  'Ilits',
+  'Kremlin',
+  'Labtsebi',
+  'Labtsec_',
+  'Labtsecb',
+  'Labtseci',
+  'Labtsecs',
+  'Labtsecw',
+  'OpenDyslexic-Bold',
+  'OpenDyslexic-BoldItalic',
+  'OpenDyslexic-Italic',
+  'OpenDyslexic-Regular',
+  'OpenDyslexicAlta-Bold',
+  'OpenDyslexicAlta-BoldItalic',
+  'OpenDyslexicAlta-Italic',
+  'OpenDyslexicAlta-Regular',
+  'OpenDyslexicMono-Regular',
+  'Robotech Gp',
+  'Tonight',
+  'Werewolf',
 ];
 
 const App = () => {
@@ -383,7 +422,6 @@ const App = () => {
     }
     return theme;
   }, [theme]);
-
   const PillIconButton = ({ icon, label, ...rest }: { icon: string; label: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button className="pill-btn" type="button" {...rest}>
       <MaterialIcon name={icon} ariaHidden />
@@ -730,6 +768,7 @@ const App = () => {
       }
       const normalized = normalizeLayerDraft(next);
       if (normalized) {
+        const nextFont = (partial as Partial<TextLayer>).font;
         setSession((prevSession) => {
           const existing = prevSession.layers ?? [];
           const idx = existing.findIndex((l) => l.id === normalized.id);
@@ -740,6 +779,11 @@ const App = () => {
         });
         void updateProjectDirty(true);
         void renderPreviewFrame();
+        if (normalized.type === 'text' && nextFont && typeof document !== 'undefined' && (document as any).fonts?.load) {
+          void (document as any).fonts.load(`12px "${nextFont}"`).then(() => {
+            void renderPreviewFrame();
+          }).catch(() => {});
+        }
       }
       return next;
     });
@@ -2834,14 +2878,15 @@ const App = () => {
                 autoFocus
                 style={{
                   margin: '1px 0px',
-                  minWidth: 260,
+                  minWidth: 220,
                   maxWidth: 430,
                   height: 28,
-                  padding: '2px 10px',
+                  padding: '2px 10px 2px 0px',
                   borderRadius: 8,
                   border: '1px solid var(--border)',
                   background: 'var(--panel)',
                   color: 'var(--text)',
+                  fontFamily: "Laritza",
                   fontSize: 22,
                   fontWeight: 400,
                   lineHeight: 1,
@@ -2854,17 +2899,21 @@ const App = () => {
                 onClick={beginProjectRename}
                 title="Rename project"
                 style={{
-                  minWidth: 260,
+                  minWidth: 220,
                   maxWidth: 430,
-                  margin: '1px 0px',
-                  border: 'none',
-                  background: 'transparent',
+                  margin: '0px 0px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: '#1a2c46',
                   color: 'var(--text)',
+                  fontFamily: "Laritza",
                   fontSize: 22,
                   fontWeight: 400,
                   lineHeight: 1,
                   cursor: 'text',
-                  padding: 0,
+                  padding: '8px 0px 2px 0px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
                 }}
               >
                 {getProjectName()}
@@ -2987,49 +3036,34 @@ const App = () => {
         {/* Media Row */}
         <div className="right section-block" style={{ opacity: renderLocked ? 0.35 : (hasAudio ? 1 : 0.6), pointerEvents: renderLocked ? 'none' : 'auto' }}>
           <div className="section-header">
-            <h2 style={{ margin: 0 }}>STORYBOARD</h2>
-            <div className="orientation-pill" role="group" aria-label="Canvas orientation" title="Canvas Orientation">
-              <button
-                className={`orientation-segment ${canvasPreset === 'landscape' ? 'is-active' : ''}`}
-                type="button"
-                aria-label="Landscape"
-                aria-pressed={canvasPreset === 'landscape'}
-                onClick={() => setCanvasPreset('landscape')}
-                title="Landscape (16:9)"
-                disabled={renderLocked}
-              >
-                <MaterialIcon name="crop_16_9" filled={canvasPreset === 'landscape'} ariaHidden />
-              </button>
-              <button
-                className={`orientation-segment ${canvasPreset === 'portrait' ? 'is-active' : ''}`}
-                type="button"
-                aria-label="Portrait"
-                aria-pressed={canvasPreset === 'portrait'}
-                onClick={() => setCanvasPreset('portrait')}
-                title="Portrait (9:16)"
-                disabled={renderLocked}
-              >
-                <MaterialIcon name="crop_9_16" filled={canvasPreset === 'portrait'} ariaHidden />
-              </button>
-            </div>
             <PillIconButton icon="video_call" label="Add Video" onClick={handleBrowseVideos} disabled={!hasAudio} />
+            <PillIconButton icon="graphic_eq" label="Visualizer" onClick={() => startNewLayer('spectrograph')} disabled={!hasAudio} />
+            <PillIconButton icon="text_fields" label="Text" onClick={() => startNewLayer('text')} disabled={!hasAudio} />
+            <PillIconButton icon="image" label="Image" onClick={() => startNewLayer('image')} disabled={!hasAudio} />
+            <PillIconButton icon="blur_on" label="Particles" onClick={() => startNewLayer('particles')} disabled={!hasAudio} />
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ opacity: hasAudio ? 1 : 0.4, pointerEvents: hasAudio ? 'auto' : 'none' }}>
-                <VolumeSlider value={volume} onChange={(v) => setVolume(Math.min(1, Math.max(0, v)))} width={180} />
-              </div>
-              <div className="pill-btn" role="group" aria-label="Timeline zoom">
-                <button className="pill-btn" style={{ border: '0px', padding: '0px' }} type="button" onClick={() => { setTimelineZoom((z) => Math.max(0.25, z / 2)); setTimelineScroll(0); }} aria-label="Zoom out" disabled={!hasAudio}>
-                  <MaterialIcon name="zoom_out" ariaHidden />
-                </button>
-                <span className="muted" style={{ minWidth: 60, lineHeight: 0.6, textAlign: 'center' }}>{Math.round(timelineZoom * 100)}%</span>
-                <button className="pill-btn" style={{ border: '0px', padding: '0px' }} type="button" onClick={() => { setTimelineZoom((z) => Math.min(8, z * 2)); setTimelineScroll(0); }} aria-label="Zoom in" disabled={!hasAudio}>
-                  <MaterialIcon name="zoom_in" ariaHidden />
-                </button>
-              </div>
-              <button className="pill-btn" type="button" onClick={() => { setTimelineZoom(1); setTimelineScroll(0); }} disabled={!hasAudio}>
-                <MaterialIcon name="center_focus_strong" ariaHidden />
-                <span className="pill-btn__label">Fit</span>
+              <button
+                className="pill-btn pill-btn--icon"
+                type="button"
+                aria-label={canvasPreset === 'landscape' ? 'Switch to portrait canvas' : 'Switch to landscape canvas'}
+                title={canvasPreset === 'landscape' ? 'Canvas: Landscape (click for Portrait)' : 'Canvas: Portrait (click for Landscape)'}
+                onClick={() => setCanvasPreset((prev) => (prev === 'landscape' ? 'portrait' : 'landscape'))}
+                disabled={renderLocked}
+              >
+                <img
+                  className="pill-btn__img"
+                  src={assetHref('ui/icon-rotate.png')}
+                  onError={(event) => {
+                    event.currentTarget.onerror = null;
+                    event.currentTarget.src = assetHref('ui/icon-landscape.png');
+                  }}
+                  alt=""
+                  style={{
+                    transform: `rotate(${canvasPreset === 'portrait' ? 90 : 0}deg)`,
+                    transition: 'transform 150ms ease',
+                  }}
+                />
               </button>
               <button className="collapse-btn" type="button" onClick={() => toggleSection('audio')} aria-label="Toggle media">
                 <MaterialIcon name={collapsed.audio ? 'expand_more' : 'expand_less'} ariaHidden />
@@ -3057,8 +3091,8 @@ const App = () => {
                   onEmptyClick={handleBrowseAudio}
                 />
                 <div style={{ position: 'absolute', left: 8, top: 6, flexDirection: 'column' }}>
-                  <button className="pill-btn pill-btn--compact pill-btn--glass" style={{ position: 'relative', top: '25px', width: '60px', height: '60px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} type="button" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={() => waveRef.current?.toggle()} disabled={!session.audioPath}>
-                    <MaterialIcon name={isPlaying ? 'pause' : 'play_arrow'} size={40} ariaHidden />
+                  <button className="pill-btn pill-btn--compact pill-btn--glass" style={{ position: 'relative', top: '25px', width: '46px', height: '46px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} type="button" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={() => waveRef.current?.toggle()} disabled={!session.audioPath}>
+                    <MaterialIcon name={isPlaying ? 'pause' : 'play_arrow'} size={30} ariaHidden />
                   </button>
                 </div>
 
@@ -3069,11 +3103,45 @@ const App = () => {
                     title="Replace audio"
                     aria-label="Replace audio"
                     onClick={handleBrowseAudio}
-                    style={{ position: 'absolute', right: 8, top: 6, width: 28, height: 28, borderRadius: '50%', padding: 0 }}
+                    style={{
+                      position: 'absolute',
+                      left: 8,
+                      top: 6,
+                      width: 20,
+                      height: 20,
+                      minWidth: 20,
+                      minHeight: 20,
+                      borderRadius: '50%',
+                      padding: 0,
+                    }}
                   >
-                    <MaterialIcon name="refresh" ariaHidden />
+                    <MaterialIcon name="refresh" size={18} ariaHidden />
                   </button>
                 )}
+
+                <div style={{ position: 'absolute', left: 8, bottom: 6, opacity: hasAudio ? 1 : 0.4, pointerEvents: hasAudio ? 'auto' : 'none' }}>
+                  <div className="pill-btn pill-btn--glass" style={{ padding: '2px 6px', marginTop: 3 }}>
+                    <VolumeSlider value={volume} onChange={(v) => setVolume(Math.min(1, Math.max(0, v)))} width={150} />
+                  </div>
+                </div>
+
+                <div style={{ position: 'absolute', right: 8, top: 9, display: 'flex', alignItems: 'center', gap: 4, opacity: hasAudio ? 1 : 0.4, pointerEvents: hasAudio ? 'auto' : 'none' }}>
+                  <div className="pill-btn pill-btn--glass" role="group" aria-label="Timeline zoom" style={{ padding: '2px 6px' }}>
+                    <button className="pill-btn pill-btn--compact" style={{ border: '0px', padding: '0px' }} type="button" onClick={() => { setTimelineZoom((z) => Math.max(0.25, z / 2)); setTimelineScroll(0); }} aria-label="Zoom out" disabled={!hasAudio}>
+                      <MaterialIcon name="zoom_out" ariaHidden />
+                    </button>
+                    <span className="muted" style={{ minWidth: 48, lineHeight: 0.6, textAlign: 'center', fontSize: 12, marginTop: 3 }}>{Math.round(timelineZoom * 100)}%</span>
+                    <button className="pill-btn pill-btn--compact" style={{ border: '0px', padding: '0px' }} type="button" onClick={() => { setTimelineZoom((z) => Math.min(8, z * 2)); setTimelineScroll(0); }} aria-label="Zoom in" disabled={!hasAudio}>
+                      <MaterialIcon name="zoom_in" ariaHidden />
+                    </button>
+                  </div>
+                  <button className="pill-btn pill-btn--glass pill-btn--compact" type="button" onClick={() => { setTimelineZoom(1); setTimelineScroll(0); }} disabled={!hasAudio}>
+                    <span style={{ marginLeft: 3, marginRight: 3, display: 'inline-flex' }}>
+                      <MaterialIcon name="center_focus_strong" ariaHidden />
+                    </span>
+                    <span className="pill-btn__label">Fit</span>
+                  </button>
+                </div>
 
                 <div className="time-pill" style={{ position: 'absolute', right: 8, bottom: 6 }}>
                   <span>{formatClock(session.playhead ?? 0)}</span>
@@ -3097,7 +3165,7 @@ const App = () => {
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, color: '#e7b77a', fontWeight: 700, textAlign: 'center' }}>
                       <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 16px', background: 'rgba(0,0,0,0.2)' }}>
-                        <div style={{ fontFamily: 'Essen, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif', fontSize: 20, letterSpacing: 2, marginBottom: 8 }}>
+                        <div style={{ fontFamily: 'Laritza, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif', fontSize: 20, letterSpacing: 2, marginBottom: 8 }}>
                           Drag file or click to browse
                         </div>
                         <button
@@ -3140,9 +3208,7 @@ const App = () => {
                     onContextMenu={(seg, x, y) => openClipContextMenu(seg.id, seg.path, seg.index, x, y)}
                     onDoubleClick={(seg) => handleClipEdit(seg.id, seg.path, seg.index)}
                   />
-                ) : (
-                  <div className="muted" style={{ marginTop: 2 }}>No clips. Use Add Video to include files.</div>
-                )}
+                ) : null}
               </div>
               {session.audioPath && (
                 <div style={{ marginTop: 4, padding: '2px 8px' }}>
@@ -3185,13 +3251,9 @@ const App = () => {
         </div>
 
         {/* Layers Row */}
+        {layers.length > 0 && (
         <div className="right section-block" style={{ opacity: workflowLocked || renderLocked ? 0.35 : 1, pointerEvents: workflowLocked || renderLocked ? 'none' : 'auto' }}>
           <div className="section-header">
-            <h2 style={{ margin: 0 }}>LAYERS</h2>
-            <PillIconButton icon="graphic_eq" label="Visualizer" onClick={() => startNewLayer('spectrograph')} disabled={!hasAudio} />
-            <PillIconButton icon="text_fields" label="Text" onClick={() => startNewLayer('text')} disabled={!hasAudio} />
-            <PillIconButton icon="image" label="Image" onClick={() => startNewLayer('image')} disabled={!hasAudio} />
-            <PillIconButton icon="blur_on" label="Particles" onClick={() => startNewLayer('particles')} disabled={!hasAudio} />
             <div style={{ marginLeft: 'auto' }}>
               <button className="collapse-btn" type="button" onClick={() => toggleSection('layers')} aria-label="Toggle layers">
                 <MaterialIcon name={collapsed.layers ? 'expand_more' : 'expand_less'} ariaHidden />
@@ -3200,7 +3262,6 @@ const App = () => {
           </div>
           {!collapsed.layers && (
             <div className="section-body">
-              {layers.length === 0 && <div className="muted">No layers yet. Add spectrograph or text overlays to render on top of the video.</div>}
               {layers.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {layers.map((layer, idx) => (
@@ -3828,6 +3889,7 @@ const App = () => {
             </div>
           )}
         </div>
+        )}
 
         {clipEditor && clipEditorDraft && (
           <div
