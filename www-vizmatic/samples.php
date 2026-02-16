@@ -96,12 +96,39 @@ $videoZip = $pickExisting([
       <section class="info">
         <div class="container">
           <div class="info__head">
-            <h2>Sample Downloads</h2>
-            <p class="subhead">Audio loops, video loops, and bundled collections.</p>
+            <h2>Sample Assets</h2>
+            <p class="muted">Sample assets to jumpstart projects</p>
           </div>
 
           <div class="samples-layout">
-            <article class="card samples-block">
+           <article class="card samples-block">
+              <h3>Video</h3>
+              <?php if (!$videoFiles): ?>
+                <p class="muted">No MP4 files found in <span class="code-inline">samples/video</span>.</p>
+              <?php else: ?>
+                <div class="samples-grid">
+                  <?php foreach ($videoFiles as $filePath): ?>
+                    <?php
+                    $name = basename($filePath);
+                    $rel = 'samples/video/' . $name;
+                    ?>
+                    <a class="sample-card" href="<?php echo htmlspecialchars($rel, ENT_QUOTES, 'UTF-8'); ?>" download>
+                      <div class="sample-card__thumb sample-card__thumb--video">
+                        <span class="material-symbols-rounded sample-card__fallback" aria-hidden="true">movie</span>
+                        <video src="<?php echo htmlspecialchars($rel, ENT_QUOTES, 'UTF-8'); ?>" muted preload="metadata" playsinline></video>
+                      </div>
+                      <div class="sample-card__meta">
+                        <span class="sample-card__name"><?php echo htmlspecialchars($name, ENT_QUOTES, 'UTF-8'); ?></span>
+                        <span class="sample-card__size muted"><?php echo htmlspecialchars($formatSize((int) filesize($filePath)), ENT_QUOTES, 'UTF-8'); ?></span>
+                      </div>
+                    </a>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
+            </article>
+
+ 
+          <article class="card samples-block">
               <h3>Audio</h3>
               <?php if (!$audioFiles): ?>
                 <p class="muted">No MP3 files found in <span class="code-inline">samples/audio</span>.</p>
@@ -132,33 +159,7 @@ $videoZip = $pickExisting([
               <?php endif; ?>
             </article>
 
-            <article class="card samples-block">
-              <h3>Video</h3>
-              <?php if (!$videoFiles): ?>
-                <p class="muted">No MP4 files found in <span class="code-inline">samples/video</span>.</p>
-              <?php else: ?>
-                <div class="samples-grid">
-                  <?php foreach ($videoFiles as $filePath): ?>
-                    <?php
-                    $name = basename($filePath);
-                    $rel = 'samples/video/' . $name;
-                    ?>
-                    <a class="sample-card" href="<?php echo htmlspecialchars($rel, ENT_QUOTES, 'UTF-8'); ?>" download>
-                      <div class="sample-card__thumb sample-card__thumb--video">
-                        <span class="material-symbols-rounded sample-card__fallback" aria-hidden="true">movie</span>
-                        <video src="<?php echo htmlspecialchars($rel, ENT_QUOTES, 'UTF-8'); ?>" muted preload="metadata" playsinline></video>
-                      </div>
-                      <div class="sample-card__meta">
-                        <span class="sample-card__name"><?php echo htmlspecialchars($name, ENT_QUOTES, 'UTF-8'); ?></span>
-                        <span class="sample-card__size muted"><?php echo htmlspecialchars($formatSize((int) filesize($filePath)), ENT_QUOTES, 'UTF-8'); ?></span>
-                      </div>
-                    </a>
-                  <?php endforeach; ?>
-                </div>
-              <?php endif; ?>
-            </article>
-
-            <article class="card samples-block">
+                       <article class="card samples-block">
               <h3>Download Collection</h3>
               <div class="samples-grid samples-grid--collection">
                 <?php if ($audioZip): ?>
