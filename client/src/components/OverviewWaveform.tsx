@@ -108,7 +108,7 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
     return () => resizeObserver.disconnect();
   }, [duration, playhead, peaks, hasAudio, zoom, scroll]);
 
-  const onClick: React.MouseEventHandler<HTMLCanvasElement> = (e) => {
+  const seekFromPointer = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     if (!hasAudio) {
@@ -125,6 +125,14 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
     const t = (globalX / contentWidth) * duration;
     onSeek(Math.max(0, Math.min(duration, t)));
   };
+  const onMouseDown: React.MouseEventHandler<HTMLCanvasElement> = (e) => {
+    if (e.button !== 0) return;
+    seekFromPointer(e);
+  };
+  const onClick: React.MouseEventHandler<HTMLCanvasElement> = (e) => {
+    // Keep click path as fallback; mouse down is primary for custom-chrome windows.
+    seekFromPointer(e);
+  };
 
   return (
     <canvas
@@ -132,6 +140,7 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
       width={800}
       height={64}
       style={{ width: '100%', height: 120, display: 'block', borderRadius: 4, background: 'transparent', cursor: duration > 0 ? 'pointer' : 'default' }}
+      onMouseDown={onMouseDown}
       onClick={onClick}
     />
   );

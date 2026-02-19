@@ -3201,7 +3201,7 @@ const App = () => {
   };
 
   return (
-    <div ref={appRootRef} style={{ padding: 2 }}>
+    <div ref={appRootRef} className="app-shell">
       <div className="app-titlebar" ref={titlebarRef}>
         <div className="app-titlebar__left">
           <img className="app-titlebar__logo" src={assetHref('ui/vizmatic_noText_logo.png')} alt="" />
@@ -3274,6 +3274,7 @@ const App = () => {
           </button>
         </div>
       </div>
+      <div className="app-scroll">
       <div className={`grid workspace workspace--${previewDockMode}`}>
 
         {/* Preview Row */}
@@ -4650,6 +4651,7 @@ const App = () => {
           </div>
         )}
 
+      </div>
       </div>
 
       {isRendering && (

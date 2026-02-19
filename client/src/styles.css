@@ -545,6 +545,14 @@ label { color: var(--text); }
 .left { display: none; }
 .right { min-width: 0; }
 .title-row { grid-column: 1 / -1; margin-top: 4px; }
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 2px;
+  box-sizing: border-box;
+}
 .app-titlebar {
   height: 30px;
   display: grid;
@@ -556,14 +564,39 @@ label { color: var(--text); }
   background: linear-gradient(180deg, rgba(20, 24, 32, 0.96), rgba(14, 18, 24, 0.96));
   user-select: none;
   -webkit-app-region: drag;
+  position: sticky;
+  top: 0;
+  z-index: 1400;
+  flex: 0 0 auto;
 }
-.app-titlebar__left,
-.app-titlebar__right,
+.app-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(126, 165, 255, 0.55) rgba(20, 24, 32, 0.45);
+}
+.app-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.app-scroll::-webkit-scrollbar-track {
+  background: rgba(20, 24, 32, 0.45);
+  border-radius: 999px;
+}
+.app-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(126, 165, 255, 0.6), rgba(63, 81, 181, 0.68));
+  border-radius: 999px;
+  border: 2px solid rgba(20, 24, 32, 0.55);
+}
+.app-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(126, 165, 255, 0.78), rgba(63, 81, 181, 0.86));
+}
 .app-titlebar__menus,
 .app-titlebar__menu-group,
 .app-titlebar__menu-dropdown,
 .app-titlebar__dock-buttons,
-.app-titlebar__title,
 .app-titlebar__menu-btn,
 .app-titlebar__menu-item,
 .app-titlebar__window-btn {
@@ -642,6 +675,7 @@ label { color: var(--text); }
   letter-spacing: 0.5px;
   font-size: 16px;
   color: rgba(229, 231, 235, 0.95);
+  -webkit-app-region: drag;
 }
 .app-titlebar__right {
   justify-self: end;
