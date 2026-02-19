@@ -12,6 +12,6 @@ if (-Not (Test-Path $sourceZip)) {
 
 # Create zip file
 Expand-Archive -Path $sourceZip -DestinationPath $destinationFolder -Force
-
+Remove-Item -Path $sourceZip -Force
 Write-Host "Successfully extracted: $sourceZip to $destinationFolder"
 
