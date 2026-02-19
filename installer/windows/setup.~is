@@ -1,5 +1,5 @@
 #define MyAppName "vizmatic"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.0.6"
 #define MyAppPublisher "SorryNeedBoost, LLC"
 #define MyAppExeName "vizmatic.exe"
 #define MyAppId "8A7E0C0A-0000-4000-8000-0000vizmatic"
