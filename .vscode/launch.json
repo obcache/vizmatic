@@ -1,6 +1,13 @@
 {
     "configurations": [
         {
+            "name": "PowerShell Launch Current File",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${file}",
+            "cwd": "${cwd}"
+        },
+        {
             "command": "npm run dev",
             "name": "npm run dev",
             "request": "launch",

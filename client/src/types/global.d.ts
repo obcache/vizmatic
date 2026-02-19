@@ -40,6 +40,12 @@ export interface ElectronAPI {
   onRenderDone(listener: () => void): () => void;
   onRenderError(listener: (message: string) => void): () => void;
   onRenderCancelled(listener: () => void): () => void;
+  invokeMenuAction(action: string): Promise<void>;
+  minimizeWindow(): Promise<void>;
+  toggleMaximizeWindow(): Promise<void>;
+  closeWindow(): Promise<void>;
+  isWindowMaximized(): Promise<boolean>;
+  onWindowMaximized(listener: (maximized: boolean) => void): () => void;
 }
 
 declare global {

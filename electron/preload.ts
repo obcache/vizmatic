@@ -49,6 +49,12 @@ export interface ElectronBridge {
   onRenderDone: (listener: () => void) => () => void;
   onRenderError: (listener: (message: string) => void) => () => void;
   onRenderCancelled: (listener: () => void) => () => void;
+  invokeMenuAction: (action: string) => Promise<void>;
+  minimizeWindow: () => Promise<void>;
+  toggleMaximizeWindow: () => Promise<void>;
+  closeWindow: () => Promise<void>;
+  isWindowMaximized: () => Promise<boolean>;
+  onWindowMaximized: (listener: (maximized: boolean) => void) => () => void;
 }
 
 const bridge: ElectronBridge = {
@@ -129,6 +135,17 @@ const bridge: ElectronBridge = {
   onRenderCancelled: (listener) => {
     const channel = 'render:cancelled';
     const handler = () => listener();
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  invokeMenuAction: (action) => ipcRenderer.invoke('menu:invoke', action),
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggleMaximize'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
+  isWindowMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  onWindowMaximized: (listener) => {
+    const channel = 'window:maximized';
+    const handler = (_e: Electron.IpcRendererEvent, maximized: boolean) => listener(!!maximized);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },

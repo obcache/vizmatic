@@ -739,6 +739,9 @@ async function createWindow(): Promise<void> {
     height: windowState.height,
     x: windowState.x,
     y: windowState.y,
+    frame: false,
+    titleBarStyle: 'hidden',
+    autoHideMenuBar: true,
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       nodeIntegration: false,
@@ -753,6 +756,21 @@ async function createWindow(): Promise<void> {
   mainWindow = win;
   win.webContents.setWindowOpenHandler((details) => {
     const url = details.url || '';
+    if (details.frameName === 'vizmatic-preview') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 1060,
+          height: 660,
+          minWidth: 520,
+          minHeight: 340,
+          frame: false,
+          titleBarStyle: 'hidden',
+          autoHideMenuBar: true,
+          show: true,
+        },
+      };
+    }
     if (url.includes('vizmatic.sorryneedboost.com')) {
       return {
         action: 'allow',
@@ -771,6 +789,15 @@ async function createWindow(): Promise<void> {
   if (windowState.isMaximized) {
     win.maximize();
   }
+  win.on('maximize', () => {
+    try { win.webContents.send('window:maximized', true); } catch {}
+  });
+  win.on('unmaximize', () => {
+    try { win.webContents.send('window:maximized', false); } catch {}
+  });
+  win.webContents.on('did-finish-load', () => {
+    try { win.webContents.send('window:maximized', win.isMaximized()); } catch {}
+  });
   win.on('close', () => {
     void safeSaveWindowState(win);
   });
@@ -791,6 +818,51 @@ const emitMenuAction = (action: string) => {
     console.warn('[menu] failed to emit action', action, err);
   }
 };
+
+const resolveEventWindow = (event: Electron.IpcMainInvokeEvent): BrowserWindow | null => {
+  return BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+};
+
+ipcMain.handle('menu:invoke', async (_event, action: string): Promise<void> => {
+  switch (action) {
+    case 'preferences:advanced':
+      await openPreferencesWindow();
+      break;
+    case 'view:toggleDevTools':
+      mainWindow?.webContents.toggleDevTools();
+      break;
+    case 'view:refresh':
+      mainWindow?.webContents.reload();
+      break;
+    case 'view:toggleFullscreen':
+      if (mainWindow) {
+        mainWindow.setFullScreen(!mainWindow.isFullScreen());
+      }
+      break;
+    default:
+      emitMenuAction(action);
+      break;
+  }
+});
+
+ipcMain.handle('window:minimize', async (event): Promise<void> => {
+  resolveEventWindow(event)?.minimize();
+});
+
+ipcMain.handle('window:toggleMaximize', async (event): Promise<void> => {
+  const win = resolveEventWindow(event);
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+
+ipcMain.handle('window:close', async (event): Promise<void> => {
+  resolveEventWindow(event)?.close();
+});
+
+ipcMain.handle('window:isMaximized', async (event): Promise<boolean> => {
+  return !!resolveEventWindow(event)?.isMaximized();
+});
 
 ipcMain.on('menu:setLayerMoveEnabled', (_event, payload: { up: boolean; down: boolean }) => {
   try {

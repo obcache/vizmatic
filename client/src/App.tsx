@@ -30,6 +30,12 @@ import {
   fileExists,
   onMenuAction,
   getMachineFingerprint,
+  invokeMenuAction,
+  minimizeWindow,
+  toggleMaximizeWindow,
+  closeWindow,
+  isWindowMaximized,
+  onWindowMaximized,
 } from './state/storage';
 import type { SessionState } from './types/session';
 // ProjectSchema usage comes via storage types; no direct import needed here.
@@ -179,6 +185,14 @@ type ParticleState = {
   width: number;
   height: number;
 };
+
+type TitleMenuItem = {
+  label: string;
+  action?: string;
+  separator?: boolean;
+};
+
+type PreviewDockMode = 'top' | 'left' | 'right' | 'bottom' | 'detached';
 
 type LocalSession = SessionState & {
   projectName?: string;
@@ -373,6 +387,20 @@ const App = () => {
     layers: false,
     project: false,
   });
+  const [openTitleMenu, setOpenTitleMenu] = useState<string | null>(null);
+  const [isMaximized, setIsMaximized] = useState<boolean>(false);
+  const [previewDockMode, setPreviewDockMode] = useState<PreviewDockMode>(() => {
+    try {
+      const raw = localStorage.getItem('vizmatic:previewDockMode');
+      if (raw === 'left' || raw === 'right' || raw === 'bottom' || raw === 'detached' || raw === 'top') {
+        return raw;
+      }
+    } catch {}
+    return 'top';
+  });
+  const titlebarRef = useRef<HTMLDivElement | null>(null);
+  const detachedPreviewWindowRef = useRef<Window | null>(null);
+  const detachedPreviewFrameAtRef = useRef<number>(0);
   const [licenseStatus, setLicenseStatus] = useState<{ licensed: boolean; key?: string; activatedAt?: string; name?: string; email?: string }>(() => {
     try {
       const raw = localStorage.getItem('vizmatic:license');
@@ -405,6 +433,156 @@ const App = () => {
   useEffect(() => {
     libraryRef.current = library;
   }, [library]);
+
+  const closeDetachedPreviewWindow = useCallback(() => {
+    const pop = detachedPreviewWindowRef.current;
+    detachedPreviewWindowRef.current = null;
+    if (!pop || pop.closed) return;
+    try { pop.close(); } catch {}
+  }, []);
+
+  const ensureDetachedPreviewWindow = useCallback((): Window | null => {
+    const existing = detachedPreviewWindowRef.current;
+    if (existing && !existing.closed) return existing;
+    const child = window.open('', 'vizmatic-preview', 'width=1060,height=660,resizable=yes,scrollbars=no');
+    if (!child) {
+      setStatus('Preview pop-out blocked by browser/window policy.');
+      setPreviewDockMode('top');
+      return null;
+    }
+    detachedPreviewWindowRef.current = child;
+    try {
+      child.document.title = 'vizmatic - Preview';
+      child.document.body.innerHTML = `
+        <style>
+          :root { color-scheme: dark; }
+          html, body { margin:0; padding:0; width:100%; height:100%; background:#0b0f16; overflow:hidden; }
+          body { display:flex; flex-direction:column; padding:2px; box-sizing:border-box; }
+          .preview-titlebar {
+            height: 30px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap: 8px;
+            padding: 0 8px;
+            border: 1px solid rgba(42, 47, 58, 0.95);
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(20,24,32,0.96), rgba(14,18,24,0.96));
+            -webkit-app-region: drag;
+            user-select: none;
+            margin-bottom: 4px;
+          }
+          .preview-titlebar__left,
+          .preview-titlebar__right {
+            display:flex;
+            align-items:center;
+            gap: 6px;
+            -webkit-app-region: no-drag;
+          }
+          .preview-titlebar__left {
+            min-width: 170px;
+          }
+          .preview-titlebar__title {
+            font-family: Laritza, system-ui, sans-serif;
+            font-size: 16px;
+            color: rgba(229,231,235,0.95);
+            letter-spacing: 0.5px;
+            flex: 1;
+            text-align: center;
+            -webkit-app-region: drag;
+          }
+          .preview-titlebar__logo {
+            width: 16px;
+            height: 16px;
+            object-fit: contain;
+          }
+          .preview-window-btn {
+            height: 28px;
+            min-width: 34px;
+            border: 0;
+            background: transparent;
+            color: #e5e7eb;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            cursor:pointer;
+            font: 600 12px/1 system-ui, sans-serif;
+            border-radius: 4px;
+          }
+          .preview-window-btn:hover { background: rgba(255,255,255,0.08); }
+          .preview-window-btn.is-close:hover { background: #d9534f; color: #fff; }
+          .preview-window-btn.is-pill {
+            border: 1px solid rgba(255,255,255,0.16);
+            background: rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(2px);
+            min-width: 0;
+            padding: 0 10px;
+            font-weight: 600;
+          }
+          .preview-window-btn.is-pill:hover {
+            background: rgba(255,255,255,0.12);
+          }
+          #preview-root {
+            width:100%;
+            height: calc(100% - 34px);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:#0b0f16;
+            border-radius: 8px;
+            overflow: hidden;
+          }
+          #preview-image { max-width:100%; max-height:100%; object-fit:contain; background:#0b0f16; }
+          html.is-fullscreen .preview-titlebar { display:none; }
+          html.is-fullscreen #preview-root { height: 100%; }
+        </style>
+        <div class="preview-titlebar" id="preview-titlebar">
+          <div class="preview-titlebar__left">
+            <img class="preview-titlebar__logo" src="${assetHref('ui/vizmatic_noText_logo.png')}" alt="" />
+            <button class="preview-window-btn is-pill" id="preview-reattach" title="Re-attach">Re-attach</button>
+          </div>
+          <div class="preview-titlebar__title">vizmatic preview</div>
+          <div class="preview-titlebar__right">
+            <button class="preview-window-btn is-pill" id="preview-fullscreen" title="Toggle Fullscreen">Fullscreen</button>
+            <button class="preview-window-btn is-close" id="preview-close" title="Close">X</button>
+          </div>
+        </div>
+        <div id="preview-root">
+          <img id="preview-image" alt="Preview" />
+        </div>
+      `;
+      const attachBtn = child.document.getElementById('preview-reattach');
+      attachBtn?.addEventListener('click', () => {
+        setPreviewDockMode('top');
+      });
+      const closeBtn = child.document.getElementById('preview-close');
+      closeBtn?.addEventListener('click', () => {
+        try { child.close(); } catch {}
+      });
+      const syncFsClass = () => {
+        try {
+          const isFs = !!child.document.fullscreenElement;
+          child.document.documentElement.classList.toggle('is-fullscreen', isFs);
+        } catch {}
+      };
+      child.document.addEventListener('fullscreenchange', syncFsClass);
+      const fsBtn = child.document.getElementById('preview-fullscreen');
+      fsBtn?.addEventListener('click', async () => {
+        try {
+          if (child.document.fullscreenElement) {
+            await child.document.exitFullscreen();
+          } else {
+            await child.document.documentElement.requestFullscreen();
+          }
+        } catch {}
+      });
+      child.addEventListener('beforeunload', () => {
+        detachedPreviewWindowRef.current = null;
+        setPreviewDockMode((mode) => (mode === 'detached' ? 'top' : mode));
+      });
+    } catch {}
+    return child;
+  }, []);
 
   const assetHref = (rel: string) => {
     try {
@@ -940,6 +1118,118 @@ const App = () => {
     }
   }, [session.layers]);
 
+  const handleMenuAction = useCallback((action: string) => {
+    switch (action) {
+      case 'project:new':
+        handleNewProject();
+        break;
+      case 'project:open':
+        void handleLoadProject();
+        break;
+      case 'project:save':
+        void handleSaveProject();
+        break;
+      case 'project:saveAs':
+        void handleSaveProjectAs();
+        break;
+      case 'preferences:advanced':
+        void invokeMenuAction('preferences:advanced');
+        break;
+      case 'render:start':
+        void handleStartRender();
+        break;
+      case 'render:cancel':
+        void cancelRender();
+        break;
+      case 'render:clearLogs':
+        setLogs([]);
+        setRenderElapsedMs(0);
+        setRenderTotalMs(0);
+        break;
+      case 'media:loadAudio':
+        void handleBrowseAudio();
+        break;
+      case 'media:addVideos':
+        void handleBrowseVideos();
+        break;
+      case 'media:addFromLibrary':
+      case 'media:openLibrary':
+        void openMediaLibraryWindow();
+        break;
+      case 'layer:addSpectrograph':
+        startNewLayer('spectrograph');
+        break;
+      case 'layer:addText':
+        startNewLayer('text');
+        break;
+      case 'layer:moveUp':
+        if (selectedLayerId) moveLayerBy(selectedLayerId, -1);
+        break;
+      case 'layer:moveDown':
+        if (selectedLayerId) moveLayerBy(selectedLayerId, 1);
+        break;
+      case 'view:toggleDevTools':
+      case 'view:refresh':
+      case 'view:toggleFullscreen':
+        void invokeMenuAction(action);
+        break;
+      case 'view:zoomIn':
+        setTimelineZoom((z) => Math.min(8, z * 2));
+        setTimelineScroll(0);
+        break;
+      case 'view:zoomOut':
+        setTimelineZoom((z) => Math.max(0.25, z / 2));
+        setTimelineScroll(0);
+        break;
+      case 'view:zoomFit':
+        setTimelineZoom(1);
+        setTimelineScroll(0);
+        break;
+      case 'view:toggleLogs':
+        break;
+      case 'view:theme:dark':
+        setThemeChoice('dark');
+        break;
+      case 'view:theme:light':
+        setThemeChoice('light');
+        break;
+      case 'view:theme:auto':
+        setThemeChoice('auto');
+        break;
+      case 'help:about':
+        setStatus('vizmatic - music visualizer generator');
+        break;
+      case 'help:activation':
+        setActivationInfoOpen(true);
+        break;
+      case 'help:unlicense':
+        handleUnlicense();
+        break;
+      case 'dock:left':
+        setPreviewDockMode('left');
+        closeDetachedPreviewWindow();
+        break;
+      case 'dock:top':
+        setPreviewDockMode('top');
+        closeDetachedPreviewWindow();
+        break;
+      case 'dock:right':
+        setPreviewDockMode('right');
+        closeDetachedPreviewWindow();
+        break;
+      case 'dock:bottom':
+        setPreviewDockMode('bottom');
+        closeDetachedPreviewWindow();
+        break;
+      case 'dock:detach':
+        setPreviewDockMode('detached');
+        void ensureDetachedPreviewWindow();
+        break;
+      default:
+        break;
+    }
+  }, [closeDetachedPreviewWindow, ensureDetachedPreviewWindow, selectedLayerId]);
+
 
   useEffect(() => {
     // Load session
@@ -983,86 +1273,7 @@ const App = () => {
       void handleSaveProject();
     });
     const offMenu = onMenuAction((action: string) => {
-      switch (action) {
-        case 'project:new':
-          handleNewProject();
-          break;
-        case 'project:open':
-          void handleLoadProject();
-          break;
-        case 'project:save':
-          void handleSaveProject();
-          break;
-        case 'project:saveAs':
-          void handleSaveProjectAs();
-          break;
-        case 'render:start':
-          void handleStartRender();
-          break;
-        case 'render:cancel':
-          void cancelRender();
-          break;
-        case 'media:loadAudio':
-          void handleBrowseAudio();
-          break;
-        case 'media:addVideos':
-          void handleBrowseVideos();
-          break;
-        case 'media:addFromLibrary':
-          void openMediaLibraryWindow();
-          break;
-        case 'layer:addSpectrograph':
-          startNewLayer('spectrograph');
-          break;
-        case 'layer:addText':
-          startNewLayer('text');
-          break;
-        case 'layer:moveUp':
-          if (selectedLayerId) moveLayerBy(selectedLayerId, -1);
-          break;
-        case 'layer:moveDown':
-          if (selectedLayerId) moveLayerBy(selectedLayerId, 1);
-          break;
-        case 'view:zoomIn':
-          setTimelineZoom((z) => Math.min(8, z * 2));
-          setTimelineScroll(0);
-          break;
-        case 'view:zoomOut':
-          setTimelineZoom((z) => Math.max(0.25, z / 2));
-          setTimelineScroll(0);
-          break;
-        case 'view:zoomFit':
-          setTimelineZoom(1);
-          setTimelineScroll(0);
-          break;
-        case 'view:toggleLogs':
-          break;
-        case 'view:theme:dark':
-          setThemeChoice('dark');
-          break;
-        case 'view:theme:light':
-          setThemeChoice('light');
-          break;
-        case 'view:theme:auto':
-          setThemeChoice('auto');
-          break;
-        case 'help:about':
-          setStatus('vizmatic - music visualizer generator');
-          break;
-        case 'help:activation':
-          setActivationInfoOpen(true);
-          break;
-        case 'help:unlicense':
-          handleUnlicense();
-          break;
-        case 'render:clearLogs':
-          setLogs([]);
-          setRenderElapsedMs(0);
-          setRenderTotalMs(0);
-          break;
-        default:
-          break;
-      }
+      handleMenuAction(action);
     });
     const offLibAdd = onMediaLibraryAddPath((path: string) => {
       if (!path) return;
@@ -1081,7 +1292,53 @@ const App = () => {
       offMenu?.();
       offLibAdd?.();
     };
+  }, [handleMenuAction]);
+
+  useEffect(() => {
+    let alive = true;
+    isWindowMaximized()
+      .then((maximized) => {
+        if (alive) setIsMaximized(!!maximized);
+      })
+      .catch(() => {});
+    const offMax = onWindowMaximized((maximized) => setIsMaximized(!!maximized));
+    const onDocMouseDown = (event: MouseEvent) => {
+      const root = titlebarRef.current;
+      if (!root) return;
+      if (!root.contains(event.target as Node)) setOpenTitleMenu(null);
+    };
+    const onDocKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenTitleMenu(null);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onDocKeyDown);
+    return () => {
+      alive = false;
+      offMax?.();
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onDocKeyDown);
+    };
   }, []);
+
+  useEffect(() => {
+    if (previewDockMode === 'detached') {
+      void ensureDetachedPreviewWindow();
+      return;
+    }
+    closeDetachedPreviewWindow();
+  }, [closeDetachedPreviewWindow, ensureDetachedPreviewWindow, previewDockMode]);
+
+  useEffect(() => {
+    return () => {
+      closeDetachedPreviewWindow();
+    };
+  }, [closeDetachedPreviewWindow]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('vizmatic:previewDockMode', previewDockMode);
+    } catch {}
+  }, [previewDockMode]);
 
   const handleBrowseAudio = async () => {
     try {
@@ -2719,12 +2976,26 @@ const App = () => {
 
     ctx.restore();
 
+    if (previewDockMode === 'detached') {
+      const now = performance.now();
+      if (now - detachedPreviewFrameAtRef.current > 80) {
+        detachedPreviewFrameAtRef.current = now;
+        const pop = ensureDetachedPreviewWindow();
+        try {
+          const img = pop?.document?.getElementById('preview-image') as HTMLImageElement | null;
+          if (img && !pop?.closed) {
+            img.src = canvas.toDataURL('image/jpeg', 0.9);
+          }
+        } catch {}
+      }
+    }
+
     previewBusyRef.current = false;
     if (previewQueuedRef.current) {
       previewQueuedRef.current = false;
       requestAnimationFrame(() => { void renderPreviewFrame(); });
     }
-  }, [audioEl, canvasSize, layers, resolveActiveClip, session.playhead]);
+  }, [audioEl, canvasSize, ensureDetachedPreviewWindow, layers, previewDockMode, resolveActiveClip, session.playhead]);
 
   useEffect(() => {
     void renderPreviewFrame();
@@ -2761,26 +3032,25 @@ const App = () => {
 
   useEffect(() => {
     const root = appRootRef.current;
-    if (!root || typeof ResizeObserver === 'undefined') return;
-    let ticking = false;
-    const adjust = () => {
-      if (!root) return;
+    if (!root) return;
+    let rafA = 0;
+    let rafB = 0;
+    const adjustOnce = () => {
       const rect = root.getBoundingClientRect();
       const chrome = Math.max(0, window.outerHeight - window.innerHeight);
       const target = Math.max(600, Math.min(1400, Math.ceil(rect.height + chrome + 6)));
       if (Math.abs(window.outerHeight - target) > 4) {
         window.resizeTo(window.outerWidth, target);
       }
-      ticking = false;
     };
-    const ro = new ResizeObserver(() => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(adjust);
+    // Size once after initial layout; do not keep auto-resizing during workflow changes.
+    rafA = requestAnimationFrame(() => {
+      rafB = requestAnimationFrame(adjustOnce);
     });
-    ro.observe(root);
-    adjust();
-    return () => ro.disconnect();
+    return () => {
+      if (rafA) cancelAnimationFrame(rafA);
+      if (rafB) cancelAnimationFrame(rafB);
+    };
   }, []);
 
   useEffect(() => {
@@ -2853,12 +3123,161 @@ const App = () => {
     return () => window.clearInterval(id);
   }, [audioEl, isPlaying, resolveActiveClip]);
 
+  const titleMenus = useMemo<{ label: string; items: TitleMenuItem[] }[]>(() => ([
+    {
+      label: 'File',
+      items: [
+        { label: 'New Project', action: 'project:new' },
+        { label: 'Open Project...', action: 'project:open' },
+        { separator: true, label: '' },
+        { label: 'Save', action: 'project:save' },
+        { label: 'Save As...', action: 'project:saveAs' },
+        { separator: true, label: '' },
+        { label: 'Advanced Settings', action: 'preferences:advanced' },
+        { separator: true, label: '' },
+        { label: 'Render', action: 'render:start' },
+        { label: 'Cancel Render', action: 'render:cancel' },
+        { label: 'Clear Render Logs', action: 'render:clearLogs' },
+      ],
+    },
+    {
+      label: 'Media',
+      items: [
+        { label: 'Open Media Library', action: 'media:openLibrary' },
+        { separator: true, label: '' },
+        { label: 'Load Audio...', action: 'media:loadAudio' },
+        { label: 'Add Videos...', action: 'media:addVideos' },
+        { label: 'Add From Library...', action: 'media:addFromLibrary' },
+      ],
+    },
+    {
+      label: 'Layers',
+      items: [
+        { label: 'Add Visualizer', action: 'layer:addSpectrograph' },
+        { label: 'Add Text', action: 'layer:addText' },
+        { separator: true, label: '' },
+        { label: 'Move Layer Up', action: 'layer:moveUp' },
+        { label: 'Move Layer Down', action: 'layer:moveDown' },
+      ],
+    },
+    {
+      label: 'View',
+      items: [
+        { label: 'Toggle Developer Tools', action: 'view:toggleDevTools' },
+        { label: 'Refresh', action: 'view:refresh' },
+        { separator: true, label: '' },
+        { label: 'Zoom Timeline In', action: 'view:zoomIn' },
+        { label: 'Zoom Timeline Out', action: 'view:zoomOut' },
+        { label: 'Zoom Timeline Fit', action: 'view:zoomFit' },
+        { separator: true, label: '' },
+        { label: 'Dock Preview Top', action: 'dock:top' },
+        { label: 'Dock Preview Left', action: 'dock:left' },
+        { label: 'Dock Preview Right', action: 'dock:right' },
+        { label: 'Dock Preview Bottom', action: 'dock:bottom' },
+        { label: 'Detach Preview', action: 'dock:detach' },
+        { separator: true, label: '' },
+        { label: 'Theme: Auto', action: 'view:theme:auto' },
+        { label: 'Theme: Dark', action: 'view:theme:dark' },
+        { label: 'Theme: Light', action: 'view:theme:light' },
+        { separator: true, label: '' },
+        { label: 'Toggle Logs', action: 'view:toggleLogs' },
+        { label: 'Toggle Fullscreen', action: 'view:toggleFullscreen' },
+      ],
+    },
+    {
+      label: 'Help',
+      items: [
+        { label: 'Activation Info', action: 'help:activation' },
+        { label: 'Unlicense', action: 'help:unlicense' },
+        { separator: true, label: '' },
+        { label: 'About vizmatic', action: 'help:about' },
+      ],
+    },
+  ]), []);
+
+  const runTitleMenuAction = (action: string) => {
+    setOpenTitleMenu(null);
+    handleMenuAction(action);
+  };
+
   return (
     <div ref={appRootRef} style={{ padding: 2 }}>
-      <div className="grid">
+      <div className="app-titlebar" ref={titlebarRef}>
+        <div className="app-titlebar__left">
+          <img className="app-titlebar__logo" src={assetHref('ui/vizmatic_noText_logo.png')} alt="" />
+          <div className="app-titlebar__menus">
+            {titleMenus.map((menu) => (
+              <div key={menu.label} className="app-titlebar__menu-group">
+                <button
+                  type="button"
+                  className={`app-titlebar__menu-btn${openTitleMenu === menu.label ? ' is-open' : ''}`}
+                  onClick={() => setOpenTitleMenu((prev) => (prev === menu.label ? null : menu.label))}
+                >
+                  {menu.label}
+                </button>
+                {openTitleMenu === menu.label && (
+                  <div className="app-titlebar__menu-dropdown">
+                    {menu.items.map((item, idx) => item.separator ? (
+                      <div key={`${menu.label}-sep-${idx}`} className="app-titlebar__menu-separator" />
+                    ) : (
+                      <button
+                        key={`${menu.label}-${item.label}`}
+                        type="button"
+                        className="app-titlebar__menu-item"
+                        onClick={() => item.action && runTitleMenuAction(item.action)}
+                        disabled={
+                          (item.action === 'layer:moveUp' && !(selectedLayerId && layers.findIndex((l) => l.id === selectedLayerId) > 0))
+                          || (item.action === 'layer:moveDown' && !(selectedLayerId && layers.findIndex((l) => l.id === selectedLayerId) < (layers.length - 1)))
+                        }
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="app-titlebar__title">vizmatic</div>
+        <div className="app-titlebar__right">
+          <div className="app-titlebar__dock-buttons">
+            <button type="button" className={`app-titlebar__window-btn${previewDockMode === 'top' ? ' is-active' : ''}`} title="Dock Top" onClick={() => runTitleMenuAction('dock:top')}>
+              <MaterialIcon name="top_panel_open" ariaHidden />
+            </button>
+            <button type="button" className={`app-titlebar__window-btn${previewDockMode === 'left' ? ' is-active' : ''}`} title="Dock Left" onClick={() => runTitleMenuAction('dock:left')}>
+              <MaterialIcon name="left_panel_open" ariaHidden />
+            </button>
+            <button type="button" className={`app-titlebar__window-btn${previewDockMode === 'bottom' ? ' is-active' : ''}`} title="Dock Bottom" onClick={() => runTitleMenuAction('dock:bottom')}>
+              <MaterialIcon name="bottom_panel_open" ariaHidden />
+            </button>
+            <button type="button" className={`app-titlebar__window-btn${previewDockMode === 'right' ? ' is-active' : ''}`} title="Dock Right" onClick={() => runTitleMenuAction('dock:right')}>
+              <MaterialIcon name="right_panel_open" ariaHidden />
+            </button>
+            <button
+              type="button"
+              className={`app-titlebar__window-btn${previewDockMode === 'detached' ? ' is-active' : ''}`}
+              title={previewDockMode === 'detached' ? 'Re-attach Preview' : 'Detach Preview'}
+              onClick={() => runTitleMenuAction(previewDockMode === 'detached' ? 'dock:top' : 'dock:detach')}
+            >
+              <MaterialIcon name={previewDockMode === 'detached' ? 'call_merge' : 'open_in_new'} ariaHidden />
+            </button>
+          </div>
+          <button type="button" className="app-titlebar__window-btn" title="Minimize" onClick={() => void minimizeWindow()}>
+            <MaterialIcon name="remove" ariaHidden />
+          </button>
+          <button type="button" className="app-titlebar__window-btn" title={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void toggleMaximizeWindow()}>
+            <MaterialIcon name={isMaximized ? 'filter_none' : 'crop_square'} ariaHidden />
+          </button>
+          <button type="button" className="app-titlebar__window-btn is-close" title="Close" onClick={() => void closeWindow()}>
+            <MaterialIcon name="close" ariaHidden />
+          </button>
+        </div>
+      </div>
+      <div className={`grid workspace workspace--${previewDockMode}`}>
 
         {/* Preview Row */}
-        <div className="right section-block" style={{ opacity: renderLocked ? 0.8 : 1 }}>
+        <div className="right section-block preview-block" style={{ opacity: renderLocked ? 0.8 : 1 }}>
           <div className="section-header">
             {editingProjectName ? (
               <input
@@ -3034,7 +3453,7 @@ const App = () => {
         </div>
 
         {/* Media Row */}
-        <div className="right section-block" style={{ opacity: renderLocked ? 0.35 : (hasAudio ? 1 : 0.6), pointerEvents: renderLocked ? 'none' : 'auto' }}>
+        <div className="right section-block media-block" style={{ opacity: renderLocked ? 0.35 : (hasAudio ? 1 : 0.6), pointerEvents: renderLocked ? 'none' : 'auto' }}>
           <div className="section-header">
             <PillIconButton icon="video_call" label="Add Video" onClick={handleBrowseVideos} disabled={!hasAudio} />
             <PillIconButton icon="graphic_eq" label="Visualizer" onClick={() => startNewLayer('spectrograph')} disabled={!hasAudio} />
@@ -3252,19 +3671,10 @@ const App = () => {
 
         {/* Layers Row */}
         {layers.length > 0 && (
-        <div className="right section-block" style={{ opacity: workflowLocked || renderLocked ? 0.35 : 1, pointerEvents: workflowLocked || renderLocked ? 'none' : 'auto' }}>
-          <div className="section-header">
-            <div style={{ marginLeft: 'auto' }}>
-              <button className="collapse-btn" type="button" onClick={() => toggleSection('layers')} aria-label="Toggle layers">
-                <MaterialIcon name={collapsed.layers ? 'expand_more' : 'expand_less'} ariaHidden />
-              </button>
-            </div>
-          </div>
-          {!collapsed.layers && (
-            <div className="section-body">
-              {layers.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {layers.map((layer, idx) => (
+        <div className="right section-block layers-block" style={{ opacity: workflowLocked || renderLocked ? 0.35 : 1, pointerEvents: workflowLocked || renderLocked ? 'none' : 'auto', marginTop: -8 }}>
+          <div className="section-body">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {layers.map((layer, idx) => (
                     <div
                       key={layer.id}
                       onClick={() => openEditLayer(layer)}
@@ -3327,10 +3737,9 @@ const App = () => {
                       <button className="pill-btn" type="button" onClick={(e) => { e.stopPropagation(); duplicateLayer(layer); }}>Duplicate</button>
                       <button className="pill-btn" type="button" onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }}>Delete</button>
                     </div>
-                  ))}
-                </div>
-              )}
-              {layerDialogOpen && (
+              ))}
+            </div>
+            {layerDialogOpen && (
                 <div className="panel" style={{ marginTop: 10, padding: 12, background: selectedLayer ? hexToRgba(selectedLayer.color, 0.12) : 'var(--panel-alt)', borderColor: selectedLayer ? hexToRgba(selectedLayer.color, 0.35) : 'var(--border)' }}>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -3885,9 +4294,8 @@ const App = () => {
                     <button className="pill-btn" type="button" onClick={closeLayerDialog}>Close</button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
         )}
 

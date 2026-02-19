@@ -210,6 +210,24 @@ const mockBridge: ElectronAPI = {
   onRenderCancelled(listener) {
     return () => void listener;
   },
+  async invokeMenuAction(_action: string) {
+    // no-op
+  },
+  async minimizeWindow() {
+    // no-op
+  },
+  async toggleMaximizeWindow() {
+    // no-op
+  },
+  async closeWindow() {
+    // no-op
+  },
+  async isWindowMaximized() {
+    return false;
+  },
+  onWindowMaximized(listener) {
+    return () => void listener;
+  },
 };
 
 let hasLoggedMockWarning = false;
@@ -324,6 +342,30 @@ export const onRenderError = (listener: (message: string) => void): (() => void)
 
 export const onRenderCancelled = (listener: () => void): (() => void) => {
   return getBridge().onRenderCancelled(listener);
+};
+
+export const invokeMenuAction = async (action: string): Promise<void> => {
+  await getBridge().invokeMenuAction(action);
+};
+
+export const minimizeWindow = async (): Promise<void> => {
+  await getBridge().minimizeWindow();
+};
+
+export const toggleMaximizeWindow = async (): Promise<void> => {
+  await getBridge().toggleMaximizeWindow();
+};
+
+export const closeWindow = async (): Promise<void> => {
+  await getBridge().closeWindow();
+};
+
+export const isWindowMaximized = async (): Promise<boolean> => {
+  return getBridge().isWindowMaximized();
+};
+
+export const onWindowMaximized = (listener: (maximized: boolean) => void): (() => void) => {
+  return getBridge().onWindowMaximized(listener);
 };
 
 export const openProject = async (): Promise<{ path: string; project: import('common/project').ProjectSchema } | undefined> => {
