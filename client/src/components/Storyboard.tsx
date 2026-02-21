@@ -286,11 +286,11 @@ const Storyboard = ({
           const showText = widthPx >= 120;
           const showHandles = selectedId === seg.id || trimDrag?.id === seg.id;
           const visualTrimMode = trimDrag?.id === seg.id ? (activeTrimMode ?? 'timeline') : (altDown ? 'source' : 'timeline');
-          const lineTop = 6;
-          const lineBottom = 6;
+          const lineTop = 4;
+          const lineBottom = 4;
           const atLeftEdge = leftPct <= 0.05;
           const atRightEdge = (leftPct + widthPct) >= 99.95;
-          const gripColor = 'rgba(196,196,196,0.98)';
+          const gripColor = 'rgba(255, 204, 0, 0.9)';
           const bg = seg.missing ? '#4a2a2a' : colorFor(seg.path);
           return (
             <div
@@ -311,8 +311,8 @@ const Storyboard = ({
                 left: `${leftPct}%`,
                 width: `${widthPct}%`,
                 opacity: dragFrom === seg.index ? 0.6 : 1,
-                top: 4,
-                height: 24,
+                top: 6,
+                height: 22,
                 boxSizing: 'border-box',
                 overflow: 'visible',
               }}
@@ -378,8 +378,8 @@ const Storyboard = ({
                             position: 'absolute',
                             left: `${sourceStartPct}%`,
                             width: `${Math.max(0.5, sourceEndPct - sourceStartPct)}%`,
-                            top: 0,
-                            bottom: 0,
+                            top: 4,
+                            bottom: 2,
                             borderRadius: 2,
                             background: 'rgba(255,255,255,0.75)',
                           }}
@@ -410,17 +410,17 @@ const Storyboard = ({
                     style={{
                       position: 'absolute',
                       left: atLeftEdge ? 1 : -7,
-                      top: -4,
+                      top: -6,
                       bottom: -6,
-                      width: 4,
+                      width: 3,
                       borderRadius: 2,
                       background: 'transparent',
-                      borderLeft: `3px solid ${gripColor}`,
-                      borderTop: `3px solid ${gripColor}`,
-                      borderBottom: `3px solid ${gripColor}`,
+                      borderLeft: `2px solid ${gripColor}`,
+                      borderTop: `2px solid ${gripColor}`,
+                      borderBottom: `2px solid ${gripColor}`,
                       cursor: 'ew-resize',
                       zIndex: 3,
-                      filter: selectedId === seg.id ? 'drop-shadow(0 0 4px rgba(0,0,0,0.95)) drop-shadow(0 0 7px rgba(140,165,255,0.55))' : 'drop-shadow(0 0 3px rgba(0,0,0,0.9))',
+                      filter: selectedId === seg.id ? 'drop-shadow(0 0 4px rgba(0,0,0,0.95)) drop-shadow(0 0 7px rgba(255, 132, 32, 0.55))' : 'drop-shadow(0 0 3px rgba(0,0,0,0.9))',
                     }}
                   />
                   <div
@@ -450,7 +450,7 @@ const Storyboard = ({
                       right: atRightEdge ? 1 : -7,
                       top: -6,
                       bottom: -6,
-                      width: 4,
+                      width: 3,
                       borderRadius: 2,
                       background: 'transparent',
                       borderRight: `2px solid ${gripColor}`,
