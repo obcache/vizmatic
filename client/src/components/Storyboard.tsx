@@ -286,12 +286,12 @@ const Storyboard = ({
           const showText = widthPx >= 120;
           const showHandles = selectedId === seg.id || trimDrag?.id === seg.id;
           const visualTrimMode = trimDrag?.id === seg.id ? (activeTrimMode ?? 'timeline') : (altDown ? 'source' : 'timeline');
-          const lineTop = 4;
-          const lineBottom = 4;
+          const lineTop = 6;
+          const lineBottom = 6;
           const atLeftEdge = leftPct <= 0.05;
           const atRightEdge = (leftPct + widthPct) >= 99.95;
-          const gripColor = 'rgba(255, 204, 0, 0.9)';
-          const bg = seg.missing ? '#4a2a2a' : colorFor(seg.path);
+          const gripColor = 'rgba(221, 207, 7, 0.98)';
+          const bg = seg.missing ? '#adadad' : colorFor(seg.path);
           return (
             <div
               key={seg.id}
@@ -311,8 +311,8 @@ const Storyboard = ({
                 left: `${leftPct}%`,
                 width: `${widthPct}%`,
                 opacity: dragFrom === seg.index ? 0.6 : 1,
-                top: 6,
-                height: 22,
+                top: 4,
+                height: 24,
                 boxSizing: 'border-box',
                 overflow: 'visible',
               }}
@@ -378,8 +378,8 @@ const Storyboard = ({
                             position: 'absolute',
                             left: `${sourceStartPct}%`,
                             width: `${Math.max(0.5, sourceEndPct - sourceStartPct)}%`,
-                            top: 4,
-                            bottom: 2,
+                            top: 0,
+                            bottom: 0,
                             borderRadius: 2,
                             background: 'rgba(255,255,255,0.75)',
                           }}
@@ -389,11 +389,11 @@ const Storyboard = ({
                   </div>
                 )}
                 {showText && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
-                    <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={seg.path}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', top:-12, gap: 6, justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
+                    <span style={{ fontWeight: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={seg.path}>
                       {seg.label || fileName(seg.path)}
                     </span>
-                    <span style={{ fontWeight: 600 }}>{formatDur(seg.duration)}</span>
+                    <span style={{ fontWeight: 300 }}>{formatDur(seg.duration)}</span>
                   </div>
                 )}
               </div>
@@ -410,9 +410,9 @@ const Storyboard = ({
                     style={{
                       position: 'absolute',
                       left: atLeftEdge ? 1 : -7,
-                      top: -6,
+                      top: -4,
                       bottom: -6,
-                      width: 3,
+                      width: 4,
                       borderRadius: 2,
                       background: 'transparent',
                       borderLeft: `2px solid ${gripColor}`,
@@ -420,7 +420,7 @@ const Storyboard = ({
                       borderBottom: `2px solid ${gripColor}`,
                       cursor: 'ew-resize',
                       zIndex: 3,
-                      filter: selectedId === seg.id ? 'drop-shadow(0 0 4px rgba(0,0,0,0.95)) drop-shadow(0 0 7px rgba(255, 132, 32, 0.55))' : 'drop-shadow(0 0 3px rgba(0,0,0,0.9))',
+                      filter: selectedId === seg.id ? 'drop-shadow(0 0 4px rgba(0,0,0,0.95)) drop-shadow(0 0 7px rgba(140,165,255,0.55))' : 'drop-shadow(0 0 3px rgba(0,0,0,0.9))',
                     }}
                   />
                   <div
@@ -447,10 +447,10 @@ const Storyboard = ({
                     }}
                     style={{
                       position: 'absolute',
-                      right: atRightEdge ? 1 : -7,
-                      top: -6,
+                      right: atRightEdge ? 0 : -7,
+                      top: -4,
                       bottom: -6,
-                      width: 3,
+                      width: 4,
                       borderRadius: 2,
                       background: 'transparent',
                       borderRight: `2px solid ${gripColor}`,

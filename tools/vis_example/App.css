@@ -1,0 +1,275 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1rem;
+  height: 100vh;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.main-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.app-header {
+  border: 1px solid #2f3342;
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: #141821;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.app-header p {
+  margin: 0.35rem 0 0;
+  color: #98a0b6;
+  font-size: 0.92rem;
+}
+
+.transport-panel {
+  border: 1px solid #2f3342;
+  border-radius: 0.75rem;
+  background: #141821;
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.transport-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.transport-panel__row--controls {
+  flex-wrap: wrap;
+}
+
+.file-picker,
+.engine-select,
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.file-picker,
+.engine-select {
+  border: 1px solid #363c4f;
+  border-radius: 0.5rem;
+  background: #11151e;
+  padding: 0.45rem 0.6rem;
+}
+
+.file-picker span,
+.engine-select span,
+.volume-control span {
+  font-size: 0.82rem;
+  color: #b5bed6;
+  white-space: nowrap;
+}
+
+.selected-file {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #c4cbdd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline {
+  display: grid;
+  grid-template-columns: 48px 1fr 48px;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.timeline span {
+  font-size: 0.85rem;
+  color: #bac4dd;
+  text-align: center;
+}
+
+.visualizer-canvas {
+  min-height: 280px;
+  height: 100%;
+  border: 1px solid #2f3342;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #090d17;
+}
+
+.visualizer-canvas canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.side-panel {
+  min-width: 0;
+}
+
+.parameter-canvas {
+  height: 100%;
+  overflow: auto;
+  border: 1px solid #2f3342;
+  border-radius: 0.75rem;
+  background: #121723;
+  padding: 0.9rem;
+  box-sizing: border-box;
+}
+
+.parameter-canvas__header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.parameter-canvas__header p {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.8rem;
+  color: #95a2c6;
+}
+
+.parameter-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.parameter-group + .parameter-group {
+  margin-top: 0.95rem;
+}
+
+.parameter-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #dbe3fa;
+}
+
+.parameter-row {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+}
+
+.parameter-row__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #c4cee9;
+}
+
+.parameter-row__label strong {
+  color: #f1f5ff;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.parameter-row__number {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px;
+  gap: 0.4rem;
+}
+
+.parameter-row__color {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 0.4rem;
+}
+
+.parameter-row--boolean {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+input,
+button,
+select {
+  font: inherit;
+}
+
+input[type="range"] {
+  accent-color: #54e8ff;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="file"],
+select {
+  border: 1px solid #38405a;
+  background: #0f1320;
+  color: #eff4ff;
+  border-radius: 0.4rem;
+  padding: 0.34rem 0.45rem;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="file"]:focus,
+select:focus {
+  outline: 1px solid #54e8ff;
+  outline-offset: 0;
+}
+
+button {
+  border: 1px solid #3a425d;
+  border-radius: 0.42rem;
+  background: #1a2236;
+  color: #edf3ff;
+  padding: 0.38rem 0.7rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.parameter-tabs__button {
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.75rem;
+  border: 1px solid #38405a;
+  background: #0f1320;
+  color: #ced7f0;
+}
+
+.parameter-tabs__button--active {
+  border-color: #56e8ff;
+  color: #f4fcff;
+  background: #123244;
+}
+
+.volume-control strong {
+  min-width: 3ch;
+  text-align: right;
+  font-size: 0.82rem;
+  color: #f0f4ff;
+}
+
+@media (max-width: 1120px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .side-panel {
+    min-height: 360px;
+  }
+
+  .visualizer-canvas {
+    min-height: 360px;
+  }
+}

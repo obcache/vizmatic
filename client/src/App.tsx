@@ -90,6 +90,38 @@ type LayerDraft = Partial<LayerConfig> & {
   averaging?: number;
   mirrorX?: boolean;
   mirrorY?: boolean;
+  mirror?: boolean;
+  fftSize?: 256 | 512 | 1024 | 2048 | 4096 | 8192;
+  smoothingTimeConstant?: number;
+  minDecibels?: number;
+  maxDecibels?: number;
+  paddingX?: number;
+  paddingY?: number;
+  centerYOffset?: number;
+  baseRadiusRatio?: number;
+  backgroundColor?: string;
+  trailAlpha?: number;
+  colorMode?: 'gradient' | 'solid';
+  primaryColor?: string;
+  secondaryColor?: string;
+  outlineEnabled?: boolean;
+  glowEnabled?: boolean;
+  shadowEnabled?: boolean;
+  glowBlur?: number;
+  shadowBlur?: number;
+  vizType?: 'bar' | 'line' | 'dot' | 'solid';
+  layout?: 'straight' | 'circle';
+  lowCutoffPercent?: number;
+  highCutoffPercent?: number;
+  intensity?: number;
+  responseCurve?: number;
+  radialSpin?: number;
+  barWidthScale?: number;
+  barGap?: number;
+  minBarHeight?: number;
+  lineWidth?: number;
+  dotSize?: number;
+  solidFillAlpha?: number;
   barCount?: number;
   barWidthPct?: number;
   dotCount?: number;
@@ -324,11 +356,21 @@ const App = () => {
   const waveRef = useRef<WaveformHandle | null>(null);
   const [layerDialogOpen, setLayerDialogOpen] = useState<boolean>(false);
   const [layerDraft, setLayerDraft] = useState<LayerDraft>({});
+  const [layerEditorTab, setLayerEditorTab] = useState<'type' | 'position' | 'appearance' | 'renderer' | 'analyzer'>('type');
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [layerDragId, setLayerDragId] = useState<string | null>(null);
   const [timelineZoom, setTimelineZoom] = useState<number>(1);
   const [timelineScroll, setTimelineScroll] = useState<number>(0);
   const layers = useMemo(() => session.layers ?? [], [session.layers]);
+  const spectroSettings = useMemo(() => {
+    const layer = layers.find((l) => l.type === 'spectrograph') as any;
+    return {
+      fftSize: layer?.fftSize ?? 2048,
+      smoothingTimeConstant: layer?.smoothingTimeConstant ?? 0.78,
+      minDecibels: layer?.minDecibels ?? -95,
+      maxDecibels: layer?.maxDecibels ?? -10,
+    };
+  }, [layers]);
   const selectedLayer = useMemo(() => layers.find((layer) => layer.id === selectedLayerId) ?? null, [layers, selectedLayerId]);
   useEffect(() => {
     const idx = selectedLayerId ? layers.findIndex((layer) => layer.id === selectedLayerId) : -1;
@@ -339,6 +381,7 @@ const App = () => {
     } catch {}
   }, [layers, selectedLayerId]);
   const hasAudio = !!session.audioPath;
+  const hasPreviewContent = (session.videoPaths?.length ?? 0) > 0 || layers.length > 0;
   const workflowLocked = !hasAudio;
   const renderLocked = isRendering;
   const canvasSize = useMemo(() => (
@@ -398,9 +441,18 @@ const App = () => {
     } catch {}
     return 'top';
   });
+  const [sideDockPreviewRatio, setSideDockPreviewRatio] = useState<number>(() => {
+    try {
+      const raw = Number(localStorage.getItem('vizmatic:sideDockPreviewRatio'));
+      if (Number.isFinite(raw)) return Math.max(0.3, Math.min(0.7, raw));
+    } catch {}
+    return 0.5;
+  });
   const titlebarRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const detachedPreviewWindowRef = useRef<Window | null>(null);
   const detachedPreviewFrameAtRef = useRef<number>(0);
+  const sideDockResizeRef = useRef<{ startX: number; startRatio: number; mode: 'left' | 'right' } | null>(null);
   const [licenseStatus, setLicenseStatus] = useState<{ licensed: boolean; key?: string; activatedAt?: string; name?: string; email?: string }>(() => {
     try {
       const raw = localStorage.getItem('vizmatic:license');
@@ -433,6 +485,17 @@ const App = () => {
   useEffect(() => {
     libraryRef.current = library;
   }, [library]);
+
+  useEffect(() => {
+    if (!layerDialogOpen) return;
+    if (layerDraft.type === 'spectrograph') {
+      setLayerEditorTab((prev) => prev);
+      return;
+    }
+    if (layerEditorTab === 'renderer' || layerEditorTab === 'analyzer') {
+      setLayerEditorTab('type');
+    }
+  }, [layerDialogOpen, layerDraft.type, layerEditorTab]);
 
   const closeDetachedPreviewWindow = useCallback(() => {
     const pop = detachedPreviewWindowRef.current;
@@ -792,14 +855,6 @@ const App = () => {
     setSession((prev) => (prev.canvasPreset === canvasPreset ? prev : { ...prev, canvasPreset }));
   }, [canvasPreset]);
 
-  // Auto-expand preview when media or layers are present
-  useEffect(() => {
-    const hasMedia = (session.videoPaths?.length ?? 0) > 0 || (session.layers?.length ?? 0) > 0;
-    if (hasMedia) {
-      setCollapsed((prev) => (prev.preview ? { ...prev, preview: false } : prev));
-    }
-  }, [session.videoPaths, session.layers]);
-
   useEffect(() => {
     // Reset zoom/scroll when audio loads
     if (audioDuration > 0) {
@@ -829,7 +884,9 @@ const App = () => {
       lowCutHz: 40,
       highCutHz: 16000,
       mode: type === 'spectrograph' ? 'bar' : undefined,
+      vizType: type === 'spectrograph' ? 'bar' : undefined,
       invert: type === 'spectrograph' ? false : undefined,
+      layout: type === 'spectrograph' ? 'straight' : undefined,
       barCount: type === 'spectrograph' ? 96 : undefined,
       barWidthPct: type === 'spectrograph' ? 0.8 : undefined,
       dotCount: type === 'spectrograph' ? 96 : undefined,
@@ -840,6 +897,36 @@ const App = () => {
       averaging: type === 'spectrograph' ? 2 : undefined,
       mirrorX: type === 'spectrograph' ? false : undefined,
       mirrorY: type === 'spectrograph' ? false : undefined,
+      mirror: type === 'spectrograph' ? true : undefined,
+      fftSize: type === 'spectrograph' ? 2048 : undefined,
+      smoothingTimeConstant: type === 'spectrograph' ? 0.78 : undefined,
+      minDecibels: type === 'spectrograph' ? -95 : undefined,
+      maxDecibels: type === 'spectrograph' ? -10 : undefined,
+      paddingX: type === 'spectrograph' ? 24 : undefined,
+      paddingY: type === 'spectrograph' ? 22 : undefined,
+      centerYOffset: type === 'spectrograph' ? 0 : undefined,
+      baseRadiusRatio: type === 'spectrograph' ? 0.22 : undefined,
+      backgroundColor: type === 'spectrograph' ? '#050816' : undefined,
+      trailAlpha: type === 'spectrograph' ? 0.35 : undefined,
+      colorMode: type === 'spectrograph' ? 'gradient' : undefined,
+      primaryColor: type === 'spectrograph' ? '#66f0ff' : undefined,
+      secondaryColor: type === 'spectrograph' ? '#6e4dff' : undefined,
+      outlineEnabled: type === 'spectrograph' ? false : undefined,
+      glowEnabled: type === 'spectrograph' ? true : undefined,
+      shadowEnabled: type === 'spectrograph' ? false : undefined,
+      glowBlur: type === 'spectrograph' ? 20 : undefined,
+      shadowBlur: type === 'spectrograph' ? 8 : undefined,
+      lowCutoffPercent: type === 'spectrograph' ? 0 : undefined,
+      highCutoffPercent: type === 'spectrograph' ? 1 : undefined,
+      intensity: type === 'spectrograph' ? 1.1 : undefined,
+      responseCurve: type === 'spectrograph' ? 0.9 : undefined,
+      radialSpin: type === 'spectrograph' ? 0 : undefined,
+      barWidthScale: type === 'spectrograph' ? 1 : undefined,
+      barGap: type === 'spectrograph' ? 2 : undefined,
+      minBarHeight: type === 'spectrograph' ? 2 : undefined,
+      lineWidth: type === 'spectrograph' ? 2 : undefined,
+      dotSize: type === 'spectrograph' ? 3 : undefined,
+      solidFillAlpha: type === 'spectrograph' ? 0.35 : undefined,
       imagePath: type === 'image' ? '' : undefined,
       motionAffected: type === 'image' ? true : undefined,
       direction: type === 'particles' ? 0 : undefined,
@@ -876,7 +963,12 @@ const App = () => {
     if (!draft.type || !draft.id) return null;
     const normalized: LayerConfig = { ...(draft as LayerConfig) };
     if (normalized.type === 'spectrograph') {
-      normalized.mode = normalized.mode === 'line' || normalized.mode === 'solid' || normalized.mode === 'dots' ? normalized.mode : 'bar';
+      const vizType = normalized.vizType === 'line' || normalized.vizType === 'solid' || normalized.vizType === 'dot' ? normalized.vizType : 'bar';
+      normalized.vizType = vizType;
+      normalized.mode = vizType === 'dot'
+        ? 'dots'
+        : (normalized.mode === 'line' || normalized.mode === 'solid' || normalized.mode === 'dots' ? normalized.mode : 'bar');
+      normalized.layout = normalized.layout === 'circle' ? 'circle' : 'straight';
       if (!normalized.width || !normalized.height) {
         const w = canvasSize.width;
         normalized.width = w;
@@ -890,12 +982,48 @@ const App = () => {
       normalized.barWidthPct = Number.isFinite(normalized.barWidthPct as number) ? Math.min(1, Math.max(0.1, Number(normalized.barWidthPct))) : 0.8;
       normalized.dotCount = Number.isFinite(normalized.dotCount as number) ? Math.max(8, Number(normalized.dotCount)) : 96;
       normalized.solidPointCount = Number.isFinite(normalized.solidPointCount as number) ? Math.max(8, Number(normalized.solidPointCount)) : 96;
-      normalized.pathMode = normalized.pathMode === 'circular' ? 'circular' : 'straight';
+      normalized.pathMode = normalized.layout === 'circle' || normalized.pathMode === 'circular' ? 'circular' : 'straight';
       normalized.freqScale = normalized.freqScale === 'rlog' ? 'rlog' : normalized.freqScale === 'lin' ? 'lin' : 'log';
       normalized.ampScale = normalized.ampScale === 'sqrt' || normalized.ampScale === 'cbrt' || normalized.ampScale === 'lin' ? normalized.ampScale : 'log';
       normalized.averaging = Number.isFinite(normalized.averaging as number) ? Math.max(1, Math.round(Number(normalized.averaging))) : 2;
       normalized.mirrorX = !!normalized.mirrorX;
       normalized.mirrorY = !!normalized.mirrorY;
+      normalized.mirror = typeof normalized.mirror === 'boolean' ? normalized.mirror : true;
+      normalized.fftSize = ([256, 512, 1024, 2048, 4096, 8192] as number[]).includes(Number(normalized.fftSize)) ? normalized.fftSize : 2048;
+      normalized.smoothingTimeConstant = Number.isFinite(normalized.smoothingTimeConstant as number) ? Math.min(0.99, Math.max(0, Number(normalized.smoothingTimeConstant))) : 0.78;
+      normalized.minDecibels = Number.isFinite(normalized.minDecibels as number) ? Math.min(-20, Math.max(-140, Number(normalized.minDecibels))) : -95;
+      normalized.maxDecibels = Number.isFinite(normalized.maxDecibels as number) ? Math.min(0, Math.max(-80, Number(normalized.maxDecibels))) : -10;
+      if ((normalized.maxDecibels as number) <= (normalized.minDecibels as number)) {
+        normalized.maxDecibels = Math.min(0, (normalized.minDecibels as number) + 1);
+      }
+      normalized.paddingX = Number.isFinite(normalized.paddingX as number) ? Math.min(220, Math.max(0, Number(normalized.paddingX))) : 24;
+      normalized.paddingY = Number.isFinite(normalized.paddingY as number) ? Math.min(220, Math.max(0, Number(normalized.paddingY))) : 22;
+      normalized.centerYOffset = Number.isFinite(normalized.centerYOffset as number) ? Math.min(0.45, Math.max(-0.45, Number(normalized.centerYOffset))) : 0;
+      normalized.baseRadiusRatio = Number.isFinite(normalized.baseRadiusRatio as number) ? Math.min(0.48, Math.max(0.05, Number(normalized.baseRadiusRatio))) : 0.22;
+      normalized.backgroundColor = typeof normalized.backgroundColor === 'string' ? normalized.backgroundColor : '#050816';
+      normalized.trailAlpha = Number.isFinite(normalized.trailAlpha as number) ? Math.min(1, Math.max(0, Number(normalized.trailAlpha))) : 0.35;
+      normalized.colorMode = normalized.colorMode === 'solid' ? 'solid' : 'gradient';
+      normalized.primaryColor = typeof normalized.primaryColor === 'string' ? normalized.primaryColor : '#66f0ff';
+      normalized.secondaryColor = typeof normalized.secondaryColor === 'string' ? normalized.secondaryColor : '#6e4dff';
+      normalized.outlineEnabled = typeof normalized.outlineEnabled === 'boolean' ? normalized.outlineEnabled : false;
+      normalized.glowEnabled = typeof normalized.glowEnabled === 'boolean' ? normalized.glowEnabled : true;
+      normalized.shadowEnabled = typeof normalized.shadowEnabled === 'boolean' ? normalized.shadowEnabled : false;
+      normalized.glowBlur = Number.isFinite(normalized.glowBlur as number) ? Math.min(120, Math.max(0, Number(normalized.glowBlur))) : 20;
+      normalized.shadowBlur = Number.isFinite(normalized.shadowBlur as number) ? Math.min(80, Math.max(0, Number(normalized.shadowBlur))) : 8;
+      normalized.lowCutoffPercent = Number.isFinite(normalized.lowCutoffPercent as number) ? Math.min(0.95, Math.max(0, Number(normalized.lowCutoffPercent))) : 0;
+      normalized.highCutoffPercent = Number.isFinite(normalized.highCutoffPercent as number) ? Math.min(1, Math.max(0.05, Number(normalized.highCutoffPercent))) : 1;
+      if ((normalized.highCutoffPercent as number) <= (normalized.lowCutoffPercent as number)) {
+        normalized.highCutoffPercent = Math.min(1, (normalized.lowCutoffPercent as number) + 0.01);
+      }
+      normalized.intensity = Number.isFinite(normalized.intensity as number) ? Math.min(4, Math.max(0.1, Number(normalized.intensity))) : 1.1;
+      normalized.responseCurve = Number.isFinite(normalized.responseCurve as number) ? Math.min(2, Math.max(0.2, Number(normalized.responseCurve))) : 0.9;
+      normalized.radialSpin = Number.isFinite(normalized.radialSpin as number) ? Math.min(2, Math.max(0, Number(normalized.radialSpin))) : 0;
+      normalized.barWidthScale = Number.isFinite(normalized.barWidthScale as number) ? Math.min(2.5, Math.max(0.25, Number(normalized.barWidthScale))) : 1;
+      normalized.barGap = Number.isFinite(normalized.barGap as number) ? Math.min(24, Math.max(0, Number(normalized.barGap))) : 2;
+      normalized.minBarHeight = Number.isFinite(normalized.minBarHeight as number) ? Math.min(64, Math.max(0, Number(normalized.minBarHeight))) : 2;
+      normalized.lineWidth = Number.isFinite(normalized.lineWidth as number) ? Math.min(16, Math.max(0.5, Number(normalized.lineWidth))) : 2;
+      normalized.dotSize = Number.isFinite(normalized.dotSize as number) ? Math.min(20, Math.max(1, Number(normalized.dotSize))) : 3;
+      normalized.solidFillAlpha = Number.isFinite(normalized.solidFillAlpha as number) ? Math.min(1, Math.max(0.05, Number(normalized.solidFillAlpha))) : 0.35;
       normalized.lowCutHz = Number.isFinite(normalized.lowCutHz as number) ? normalized.lowCutHz : 40;
       normalized.highCutHz = Number.isFinite(normalized.highCutHz as number) ? normalized.highCutHz : 16000;
     } else if (normalized.type === 'image') {
@@ -1329,6 +1457,12 @@ const App = () => {
   }, [closeDetachedPreviewWindow, ensureDetachedPreviewWindow, previewDockMode]);
 
   useEffect(() => {
+    if (!hasPreviewContent && previewDockMode === 'detached') {
+      closeDetachedPreviewWindow();
+    }
+  }, [closeDetachedPreviewWindow, hasPreviewContent, previewDockMode]);
+
+  useEffect(() => {
     return () => {
       closeDetachedPreviewWindow();
     };
@@ -1339,6 +1473,11 @@ const App = () => {
       localStorage.setItem('vizmatic:previewDockMode', previewDockMode);
     } catch {}
   }, [previewDockMode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('vizmatic:sideDockPreviewRatio', String(sideDockPreviewRatio));
+    } catch {}
+  }, [sideDockPreviewRatio]);
 
   const handleBrowseAudio = async () => {
     try {
@@ -1790,6 +1929,16 @@ const App = () => {
     });
     void updateProjectDirty(true);
   }, []);
+
+  const getClipFillMethod = useCallback((id: string): ClipEdit['fillMethod'] => {
+    const seg = clipSegments.find((item) => item.id === id);
+    return (seg?.fillMethod ?? 'loop') as ClipEdit['fillMethod'];
+  }, [clipSegments]);
+
+  const setClipFillMethodFromContext = useCallback((id: string, method: ClipEdit['fillMethod']) => {
+    updateClipEdit(id, { fillMethod: method });
+    setContextMenu(null);
+  }, [updateClipEdit]);
 
   const applyTrimEdit = useCallback((id: string, trimStart: number, duration: number) => {
     const seg = clipSegments.find((item) => item.id === id);
@@ -2332,8 +2481,10 @@ const App = () => {
       source = ctx.createMediaElementSource(audio);
       analyser = ctx.createAnalyser();
       gain = ctx.createGain();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.7;
+      analyser.fftSize = spectroSettings.fftSize;
+      analyser.smoothingTimeConstant = spectroSettings.smoothingTimeConstant;
+      analyser.minDecibels = spectroSettings.minDecibels;
+      analyser.maxDecibels = spectroSettings.maxDecibels;
       source.connect(analyser);
       analyser.connect(gain);
       gain.connect(ctx.destination);
@@ -2351,7 +2502,7 @@ const App = () => {
       cleanup();
       return undefined;
     }
-  }, [audioEl]);
+  }, [audioEl, spectroSettings.fftSize, spectroSettings.maxDecibels, spectroSettings.minDecibels, spectroSettings.smoothingTimeConstant]);
 
   useEffect(() => {
     const gain = spectroGainRef.current;
@@ -2423,6 +2574,9 @@ const App = () => {
     const active = resolveActiveClip(session.playhead ?? 0);
     const videoEl = previewVideoElRef.current;
     const useVideoElement = !!videoEl;
+    if (!active) {
+      previewVideoFrameMetaRef.current = null;
+    }
     if (!useVideoElement) {
       ctx.fillStyle = '#0b0f16';
       ctx.fillRect(0, 0, logicalW, logicalH);
@@ -2569,10 +2723,17 @@ const App = () => {
           workCanvas.height = barCanvasH;
           const workCtx = workCanvas.getContext('2d');
           if (!workCtx) continue;
-          workCtx.clearRect(0, 0, barCanvasW, barCanvasH);
+          const backgroundColor = (layer as any).backgroundColor ?? '#050816';
+          const trailAlpha = (layer as any).trailAlpha ?? 0.35;
+          workCtx.fillStyle = backgroundColor;
+          workCtx.globalAlpha = Math.min(1, Math.max(0, trailAlpha));
+          workCtx.fillRect(0, 0, barCanvasW, barCanvasH);
+          workCtx.globalAlpha = 1;
           const data = audioData;
-          const mode = layer.mode ?? 'bar';
-          const pathMode = layer.pathMode ?? 'straight';
+          const vizType = ((layer as any).vizType ?? 'bar') as 'bar' | 'line' | 'dot' | 'solid';
+          const mode = vizType === 'dot' ? 'dots' : ((layer.mode ?? 'bar') as 'bar' | 'line' | 'solid' | 'dots');
+          const layout = ((layer as any).layout ?? (layer.pathMode === 'circular' ? 'circle' : 'straight')) as 'straight' | 'circle';
+          const pathMode = layout === 'circle' ? 'circular' : 'straight';
           const freqScale = layer.freqScale ?? 'log';
           const ampScale = layer.ampScale ?? 'log';
           const barCount = mode === 'dots'
@@ -2580,15 +2741,26 @@ const App = () => {
             : mode === 'solid'
               ? (layer.solidPointCount ?? 96)
               : (layer.barCount ?? 96);
-          const step = Math.max(1, Math.floor(data.length / barCount));
+          const lowCutoffPercent = (layer as any).lowCutoffPercent ?? 0;
+          const highCutoffPercent = (layer as any).highCutoffPercent ?? 1;
+          const lowIdx = Math.floor((data.length - 1) * Math.min(0.95, Math.max(0, lowCutoffPercent)));
+          const highIdx = Math.floor((data.length - 1) * Math.min(1, Math.max(0.05, highCutoffPercent)));
+          const usableBins = Math.max(1, highIdx - lowIdx + 1);
+          const step = Math.max(1, Math.floor(usableBins / barCount));
           const barW = barCanvasW / barCount;
           const barWidthPct = mode === 'bar' || mode === 'solid' ? (layer.barWidthPct ?? 0.8) : 0.6;
+          const barWidthScale = (layer as any).barWidthScale ?? 1;
+          const barGap = (layer as any).barGap ?? 2;
+          const minBarHeight = (layer as any).minBarHeight ?? 2;
+          const intensity = (layer as any).intensity ?? 1.1;
+          const responseCurve = (layer as any).responseCurve ?? 0.9;
           const averaging = Math.max(1, Math.round(layer.averaging ?? 1));
           const scaleAmp = (v: number) => {
+            const curved = Math.pow(Math.max(0, v), Math.max(0.2, responseCurve));
             if (ampScale === 'lin') return v;
-            if (ampScale === 'sqrt') return Math.sqrt(v);
-            if (ampScale === 'cbrt') return Math.cbrt(v);
-            return Math.log10(1 + 9 * v);
+            if (ampScale === 'sqrt') return Math.sqrt(curved);
+            if (ampScale === 'cbrt') return Math.cbrt(curved);
+            return Math.log10(1 + 9 * curved);
           };
           const scaleIndex = (i: number) => {
             if (freqScale === 'lin') return i;
@@ -2601,45 +2773,45 @@ const App = () => {
           const sampleValue = (i: number) => {
             const sIdx = scaleIndex(i);
             if (averaging <= 1) {
-              return data[sIdx * step] / 255;
+              return data[Math.min(data.length - 1, lowIdx + (sIdx * step))] / 255;
             }
             const half = Math.floor(averaging / 2);
             let sum = 0;
             let count = 0;
             for (let o = -half; o <= half; o++) {
               const idx = Math.min(barCount - 1, Math.max(0, sIdx + o));
-              sum += data[idx * step] / 255;
+              sum += data[Math.min(data.length - 1, lowIdx + (idx * step))] / 255;
               count += 1;
             }
             return sum / Math.max(1, count);
           };
-          const fill = layer.color ?? '';
+          const colorMode = (layer as any).colorMode ?? 'gradient';
+          const fill = colorMode === 'solid' ? (((layer as any).primaryColor ?? layer.color) || '#66f0ff') : '';
           let gradient: CanvasGradient | null = null;
           if (!fill) {
             gradient = workCtx.createLinearGradient(0, 0, 0, barCanvasH);
-            gradient.addColorStop(0, '#ff3b3b');
-            gradient.addColorStop(0.55, '#ffd400');
-            gradient.addColorStop(1, '#00ff7a');
+            gradient.addColorStop(0, (layer as any).primaryColor ?? '#66f0ff');
+            gradient.addColorStop(1, (layer as any).secondaryColor ?? '#6e4dff');
           }
           workCtx.fillStyle = fill || gradient || '#00ff7a';
           if (mode === 'line') {
             workCtx.beginPath();
             for (let i = 0; i < barCount; i++) {
               const v = sampleValue(i);
-              const h = Math.max(1, Math.floor(scaleAmp(v) * barCanvasH));
+              const h = Math.max(minBarHeight, Math.floor(scaleAmp(v) * intensity * barCanvasH));
               const xPos = i * barW + barW / 2;
               const yPos = layer.invert ? h : (barCanvasH - h);
               if (i === 0) workCtx.moveTo(xPos, yPos);
               else workCtx.lineTo(xPos, yPos);
             }
             workCtx.strokeStyle = fill || gradient || '#00ff7a';
-            workCtx.lineWidth = Math.max(1, barW * 0.4);
+            workCtx.lineWidth = Math.max(0.5, (layer as any).lineWidth ?? 2);
             workCtx.stroke();
           } else if (mode === 'dots') {
-            const radius = Math.max(1, (barW * barWidthPct) / 2);
+            const radius = Math.max(1, (layer as any).dotSize ?? 3);
             for (let i = 0; i < barCount; i++) {
               const v = sampleValue(i);
-              const h = Math.max(1, Math.floor(scaleAmp(v) * barCanvasH));
+              const h = Math.max(minBarHeight, Math.floor(scaleAmp(v) * intensity * barCanvasH));
               const xPos = i * barW + barW / 2;
               const yPos = layer.invert ? h : (barCanvasH - h);
               workCtx.beginPath();
@@ -2650,11 +2822,16 @@ const App = () => {
             const widthScale = mode === 'solid' ? 1 : barWidthPct;
             for (let i = 0; i < barCount; i++) {
               const v = sampleValue(i);
-              const h = Math.max(1, Math.floor(scaleAmp(v) * barCanvasH));
+              const h = Math.max(minBarHeight, Math.floor(scaleAmp(v) * intensity * barCanvasH));
               const xPos = i * barW;
-              const barWidth = Math.max(1, barW * widthScale);
+              const barWidth = Math.max(1, (barW * widthScale * barWidthScale) - barGap);
               const yPos = layer.invert ? 0 : (barCanvasH - h);
+              if (mode === 'solid') {
+                workCtx.save();
+                workCtx.globalAlpha = Math.min(1, Math.max(0.05, (layer as any).solidFillAlpha ?? 0.35));
+              }
               workCtx.fillRect(xPos, yPos, barWidth, h);
+              if (mode === 'solid') workCtx.restore();
             }
           }
           const buildMirroredCanvas = (source: HTMLCanvasElement, mirrorX: boolean, mirrorY: boolean): HTMLCanvasElement => {
@@ -2704,12 +2881,13 @@ const App = () => {
             return out;
           };
           let finalCanvas = workCanvas;
-          const glowAmount = layer.glowAmount ?? 0;
+          const glowAmount = (layer as any).glowEnabled === false ? 0 : ((layer as any).glowBlur ?? layer.glowAmount ?? 0);
           const glowOpacity = layer.glowOpacity ?? 0.4;
           const glowColor = layer.glowColor ?? layer.color ?? '#ffffff';
-          const outlineWidth = layer.outlineWidth ?? 0;
+          const outlineWidth = (layer as any).outlineEnabled === false ? 0 : (layer.outlineWidth ?? 0);
           const outlineColor = layer.outlineColor ?? '#000000';
-          const shadowDistance = layer.shadowDistance ?? 0;
+          const shadowDistance = (layer as any).shadowEnabled === false ? 0 : (layer.shadowDistance ?? 0);
+          const shadowBlur = (layer as any).shadowEnabled === false ? 0 : ((layer as any).shadowBlur ?? shadowDistance);
           const shadowColor = layer.shadowColor ?? '#000000';
           ctx.save();
           ctx.translate(x + drawW / 2, y + drawH / 2);
@@ -2723,16 +2901,21 @@ const App = () => {
             const circleCtx = circleCanvas.getContext('2d');
             if (circleCtx) {
               circleCtx.clearRect(0, 0, barCanvasW, barCanvasH);
-              circleCtx.translate(barCanvasW / 2, barCanvasH / 2);
+              const centerYOffset = (layer as any).centerYOffset ?? 0;
+              const paddingX = (layer as any).paddingX ?? 24;
+              const paddingY = (layer as any).paddingY ?? 22;
+              circleCtx.translate(barCanvasW / 2, (barCanvasH / 2) + (centerYOffset * barCanvasH));
               const radius = Math.min(barCanvasW, barCanvasH) / 2;
-              const innerRadius = radius * 0.1;
+              const drawRadius = Math.max(8, radius - Math.max(paddingX, paddingY));
+              const innerRadius = drawRadius * ((layer as any).baseRadiusRatio ?? 0.22);
               const angleStep = (Math.PI * 2) / barCount;
               circleCtx.fillStyle = fill || gradient || '#00ff7a';
               circleCtx.strokeStyle = fill || gradient || '#00ff7a';
               for (let i = 0; i < barCount; i++) {
                 const v = sampleValue(i);
-                const mag = Math.max(1, scaleAmp(v) * (radius - innerRadius));
-                const startAngle = -Math.PI / 2 + i * angleStep;
+                const mag = Math.max(minBarHeight, scaleAmp(v) * intensity * (drawRadius - innerRadius));
+                const radialSpin = (layer as any).radialSpin ?? 0;
+                const startAngle = -Math.PI / 2 + i * angleStep + (radialSpin * Math.PI * 2);
                 const thickness = angleStep * (mode === 'bar' || mode === 'solid' ? barWidthPct : 0.6);
                 const angle = startAngle + thickness / 2;
                 const outer = layer.invert ? innerRadius : innerRadius + mag;
@@ -2763,13 +2946,14 @@ const App = () => {
               finalCanvas = circleCanvas;
             }
           }
-          finalCanvas = buildMirroredCanvas(finalCanvas, !!layer.mirrorX, !!layer.mirrorY);
+          const useMirrorX = typeof (layer as any).mirror === 'boolean' ? !!(layer as any).mirror : !!layer.mirrorX;
+          finalCanvas = buildMirroredCanvas(finalCanvas, useMirrorX, !!layer.mirrorY);
           if (shadowDistance > 0) {
             ctx.save();
             ctx.shadowOffsetX = shadowDistance;
             ctx.shadowOffsetY = shadowDistance;
             ctx.shadowColor = shadowColor;
-            ctx.shadowBlur = 0;
+            ctx.shadowBlur = shadowBlur;
             ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
             ctx.restore();
           }
@@ -3008,14 +3192,14 @@ const App = () => {
   }, [renderPreviewFrame]);
 
   useEffect(() => {
-    if (collapsed.preview) return;
-    // Let layout settle after expand/collapse before forcing a redraw.
+    if (!hasPreviewContent || previewDockMode === 'detached') return;
+    // Let layout settle after dock/size/layout changes before forcing a redraw.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         void renderPreviewFrame();
       });
     });
-  }, [collapsed.preview, previewHeight, renderPreviewFrame]);
+  }, [hasPreviewContent, previewDockMode, previewHeight, renderPreviewFrame, sideDockPreviewRatio]);
 
   useEffect(() => {
     const el = previewContainerRef.current;
@@ -3073,11 +3257,36 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+      const onMove = (e: MouseEvent) => {
+      const drag = sideDockResizeRef.current;
+      if (!drag) return;
+      const rootW = Math.max(1, workspaceRef.current?.getBoundingClientRect().width ?? appRootRef.current?.getBoundingClientRect().width ?? window.innerWidth);
+      const delta = e.clientX - drag.startX;
+      const signedDelta = drag.mode === 'left' ? delta : -delta;
+      const next = drag.startRatio + (signedDelta / rootW);
+      setSideDockPreviewRatio(Math.max(0.3, Math.min(0.7, next)));
+    };
+    const onUp = () => {
+      sideDockResizeRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  useEffect(() => {
     const vid = previewVideoElRef.current;
     if (!vid) return;
     const active = resolveActiveClip(session.playhead ?? 0);
     if (!active) {
       vid.pause();
+      if (vid.src) {
+        vid.removeAttribute('src');
+        try { vid.load(); } catch {}
+      }
       return;
     }
     const src = toFileURL(active.path);
@@ -3103,6 +3312,10 @@ const App = () => {
       const active = resolveActiveClip(audioEl.currentTime);
       if (!active) {
         vid.pause();
+        if (vid.src) {
+          vid.removeAttribute('src');
+          try { vid.load(); } catch {}
+        }
         return;
       }
       const src = toFileURL(active.path);
@@ -3200,8 +3413,27 @@ const App = () => {
     handleMenuAction(action);
   };
 
+  const previewActiveClip = resolveActiveClip(session.playhead ?? 0);
+  const previewVideoVisible = !!previewActiveClip;
+  const workspaceDockMode: PreviewDockMode = hasPreviewContent ? previewDockMode : 'top';
+  const sideDockEnabled = workspaceDockMode === 'left' || workspaceDockMode === 'right';
+  const leftWeight = workspaceDockMode === 'left'
+    ? sideDockPreviewRatio
+    : (1 - sideDockPreviewRatio);
+  const rightWeight = 1 - leftWeight;
+  const workspaceStyle = sideDockEnabled
+    ? { gridTemplateColumns: `minmax(0, ${leftWeight.toFixed(4)}fr) 8px minmax(0, ${rightWeight.toFixed(4)}fr)` }
+    : undefined;
+  const previewWidthScale = previewContainerWidth > 0 ? (previewContainerWidth / canvasSize.width) : (previewHeight / canvasSize.height);
+  const previewHeightScale = previewHeight / canvasSize.height;
+  const previewScale = sideDockEnabled
+    ? Math.max(0.05, Math.min(2, previewWidthScale))
+    : Math.max(0.05, Math.min(previewHeightScale, previewWidthScale));
+  const previewDrawWidth = Math.max(1, canvasSize.width * previewScale);
+  const previewDrawHeight = Math.max(1, canvasSize.height * previewScale);
+
   return (
-    <div ref={appRootRef} className="app-shell">
+    <div ref={appRootRef} style={{ padding: 2, boxSizing: 'border-box', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div className="app-titlebar" ref={titlebarRef}>
         <div className="app-titlebar__left">
           <img className="app-titlebar__logo" src={assetHref('ui/vizmatic_noText_logo.png')} alt="" />
@@ -3274,144 +3506,155 @@ const App = () => {
           </button>
         </div>
       </div>
-      <div className="app-scroll">
-      <div className={`grid workspace workspace--${previewDockMode}`}>
+      <div className="section-header preview-toolbar">
+        {editingProjectName ? (
+          <input
+            type="text"
+            value={projectNameDraft}
+            onChange={(e) => setProjectNameDraft(e.target.value)}
+            onBlur={applyProjectRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                applyProjectRename();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelProjectRename();
+              }
+            }}
+            autoFocus
+            style={{
+              margin: '1px 0px',
+              minWidth: 220,
+              maxWidth: 430,
+              height: 28,
+              padding: '2px 10px 2px 0px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: 'var(--panel)',
+              color: 'var(--text)',
+              fontFamily: 'Laritza',
+              fontSize: 22,
+              fontWeight: 400,
+              lineHeight: 1,
+            }}
+            aria-label="Project name"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={beginProjectRename}
+            title="Rename project"
+            style={{
+              minWidth: 220,
+              maxWidth: 430,
+              margin: '0px 0px',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              background: '#1a2c46',
+              color: 'var(--text)',
+              fontFamily: 'Laritza',
+              fontSize: 22,
+              fontWeight: 400,
+              lineHeight: 1,
+              cursor: 'text',
+              padding: '8px 0px 2px 0px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+            }}
+          >
+            {getProjectName()}
+          </button>
+        )}
+        <button className="pill-btn pill-btn--icon" type="button" onClick={handleNewProject} title="New Project" aria-label="New Project" disabled={renderLocked}>
+          <MaterialIcon name="note_add" ariaHidden />
+        </button>
+        <button className="pill-btn pill-btn--icon" type="button" onClick={handleLoadProject} title="Load Project" aria-label="Load Project" disabled={projectLocked || renderLocked}>
+          <MaterialIcon name="folder_open" ariaHidden />
+        </button>
+        <button className="pill-btn pill-btn--icon" type="button" onClick={handleSaveProjectAs} title="Save Project As" aria-label="Save Project As" disabled={projectLocked || renderLocked}>
+          <MaterialIcon name="save_as" ariaHidden />
+        </button>
+        <button className="pill-btn pill-btn--icon" type="button" onClick={handleSaveProject} title="Save Project" aria-label="Save Project" disabled={projectLocked || renderLocked}>
+          <MaterialIcon name="save" ariaHidden />
+        </button>
+        <button className="pill-btn pill-btn--icon" type="button" onClick={() => void openMediaLibraryWindow()} title="Open Media Library" aria-label="Open Media Library" disabled={renderLocked}>
+          <MaterialIcon name="video_library" ariaHidden />
+        </button>
+        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px 0 2px' }} />
+        {!isRendering && (
+          <button className="pill-btn pill-btn--icon" type="button" onClick={handleStartRender} disabled={projectLocked || !session.projectSavePath || renderLocked} title="Render" aria-label="Render">
+            <MaterialIcon name="movie" ariaHidden />
+          </button>
+        )}
+        {isRendering && (
+          <button className="pill-btn pill-btn--icon" type="button" onClick={() => cancelRender()} disabled={projectLocked || !isRendering} title="Cancel Render" aria-label="Cancel Render">
+            <MaterialIcon name="cancel" ariaHidden />
+          </button>
+        )}
+        {(isRendering || renderTotalMs > 0) && (
+          <div style={{ height: 18, width: 160, background: '#222', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderTotalMs > 0 ? (renderElapsedMs / renderTotalMs) * 100 : 0))).toFixed(1)}%`, background: '#3f51b5' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 11, color: '#d8def6', fontWeight: 600 }}>
+              <span>Elapsed {formatClock(renderElapsedMs / 1000)}</span>
+              {isRendering && (
+                <span>[ Task {renderElapsedMs > 0 ? 2 : 1} of 2 ]</span>
+              )}
+            </div>
+          </div>
+        )}
+        {projectLocked && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 2,
+              bottom: 2,
+              left: 2,
+              right: 2,
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.7), rgba(239, 68, 68, 0.7))',
+              color: '#0b0f16',
+              fontSize: 12,
+              fontWeight: 700,
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              padding: '0 12px',
+              zIndex: 2,
+              cursor: 'pointer',
+              boxShadow: '0 10px 18px rgba(239, 68, 68, 0.35)',
+            }}
+            onClick={() => setLicenseModalOpen(true)}
+          >
+            Trial Edition: Click here to upgrade to the Full Version.
+          </div>
+        )}
+      </div>
+      <div ref={workspaceRef} className={`grid workspace workspace--${workspaceDockMode}`} style={{ ...(workspaceStyle ?? {}), flex: 1, minHeight: 0 }}>
+        {sideDockEnabled && (
+          <div
+            className={`workspace-splitter workspace-splitter--${workspaceDockMode}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize preview area"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              sideDockResizeRef.current = {
+                startX: e.clientX,
+                startRatio: sideDockPreviewRatio,
+                mode: workspaceDockMode === 'left' ? 'left' : 'right',
+              };
+            }}
+            onDoubleClick={() => setSideDockPreviewRatio(0.5)}
+          />
+        )}
 
         {/* Preview Row */}
-        <div className="right section-block preview-block" style={{ opacity: renderLocked ? 0.8 : 1 }}>
-          <div className="section-header">
-            {editingProjectName ? (
-              <input
-                type="text"
-                value={projectNameDraft}
-                onChange={(e) => setProjectNameDraft(e.target.value)}
-                onBlur={applyProjectRename}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    applyProjectRename();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    cancelProjectRename();
-                  }
-                }}
-                autoFocus
-                style={{
-                  margin: '1px 0px',
-                  minWidth: 220,
-                  maxWidth: 430,
-                  height: 28,
-                  padding: '2px 10px 2px 0px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--panel)',
-                  color: 'var(--text)',
-                  fontFamily: "Laritza",
-                  fontSize: 22,
-                  fontWeight: 400,
-                  lineHeight: 1,
-                }}
-                aria-label="Project name"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={beginProjectRename}
-                title="Rename project"
-                style={{
-                  minWidth: 220,
-                  maxWidth: 430,
-                  margin: '0px 0px',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  background: '#1a2c46',
-                  color: 'var(--text)',
-                  fontFamily: "Laritza",
-                  fontSize: 22,
-                  fontWeight: 400,
-                  lineHeight: 1,
-                  cursor: 'text',
-                  padding: '8px 0px 2px 0px',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                }}
-              >
-                {getProjectName()}
-              </button>
-            )}
-            <button className="pill-btn pill-btn--icon" type="button" onClick={handleNewProject} title="New Project" aria-label="New Project" disabled={renderLocked}>
-              <MaterialIcon name="note_add" ariaHidden />
-            </button>
-            <button className="pill-btn pill-btn--icon" type="button" onClick={handleLoadProject} title="Load Project" aria-label="Load Project" disabled={projectLocked || renderLocked}>
-              <MaterialIcon name="folder_open" ariaHidden />
-            </button>
-            <button className="pill-btn pill-btn--icon" type="button" onClick={handleSaveProjectAs} title="Save Project As" aria-label="Save Project As" disabled={projectLocked || renderLocked}>
-              <MaterialIcon name="save_as" ariaHidden />
-            </button>
-            <button className="pill-btn pill-btn--icon" type="button" onClick={handleSaveProject} title="Save Project" aria-label="Save Project" disabled={projectLocked || renderLocked}>
-              <MaterialIcon name="save" ariaHidden />
-            </button>
-            <button className="pill-btn pill-btn--icon" type="button" onClick={() => void openMediaLibraryWindow()} title="Open Media Library" aria-label="Open Media Library" disabled={renderLocked}>
-              <MaterialIcon name="video_library" ariaHidden />
-            </button>
-            <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px 0 2px' }} />
-            {(!isRendering) && (
-              <button className="pill-btn pill-btn--icon" type="button" onClick={handleStartRender} disabled={projectLocked || !session.projectSavePath || renderLocked} title="Render" aria-label="Render">
-                <MaterialIcon name="movie" ariaHidden />
-              </button>
-            )}
-            {(isRendering) && (
-              <button className="pill-btn pill-btn--icon" type="button" onClick={() => cancelRender()} disabled={projectLocked || !isRendering} title="Cancel Render" aria-label="Cancel Render">
-                <MaterialIcon name="cancel" ariaHidden />
-              </button>
-            )}
-            {(isRendering || renderTotalMs > 0) && (
-              <div style={{ height: 18, width: 160, background: '#222', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderTotalMs > 0 ? (renderElapsedMs / renderTotalMs) * 100 : 0))).toFixed(1)}%`, background: '#3f51b5' }} />
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 11, color: '#d8def6', fontWeight: 600 }}>
-                  <span>Elapsed {formatClock(renderElapsedMs / 1000)}</span>
-                  {isRendering && (
-                    <span>[ Task {renderElapsedMs > 0 ? 2 : 1} of 2 ]</span>
-                  )}
-                </div>
-              </div>
-            )}
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button className="collapse-btn" type="button" onClick={() => toggleSection('preview')} aria-label="Toggle preview" disabled={renderLocked}>
-                <MaterialIcon name={collapsed.preview ? 'expand_more' : 'expand_less'} ariaHidden />
-              </button>
-            </div>
-            {projectLocked && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 2,
-                  bottom: 2,
-                  left: 2,
-                  right: 44,
-                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.7), rgba(239, 68, 68, 0.7))',
-                  color: '#0b0f16',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  padding: '0 12px',
-                  zIndex: 2,
-                  cursor: 'pointer',
-                  boxShadow: '0 10px 18px rgba(239, 68, 68, 0.35)',
-                }}
-                onClick={() => setLicenseModalOpen(true)}
-              >
-                Trial Edition: Click here to upgrade to the Full Version.
-              </div>
-            )}
-          </div>
-          {!collapsed.preview && (
-            <div className="section-body" style={{ padding: 0 }}>
-              <div ref={previewContainerRef} style={{ display: 'flex', justifyContent: 'center', background: '#0b0f16', borderRadius: 8, position: 'relative' }}>
+        {hasPreviewContent && (
+          <div className="right preview-block" style={{ opacity: renderLocked ? 0.8 : 1 }}>
+            <div className="preview-surface section-body" style={{ padding: 0 }}>
+              <div ref={previewContainerRef} style={{ display: 'flex', justifyContent: 'center', width: '100%', background: '#0b0f16', borderRadius: 8, position: 'relative' }}>
                 <video
                   ref={previewVideoElRef}
                   muted
@@ -3421,37 +3664,40 @@ const App = () => {
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
-                    width: Math.max(1, canvasSize.width * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
-                    height: Math.max(1, canvasSize.height * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
+                    width: previewDrawWidth,
+                    height: previewDrawHeight,
                     objectFit: 'contain',
                     borderRadius: 8,
                     background: '#0b0f16',
                     zIndex: 1,
+                    opacity: previewVideoVisible ? 1 : 0,
                   }}
-                />
+          />
                 <canvas
                   ref={previewCanvasRef}
                   style={{
-                    width: Math.max(1, canvasSize.width * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
-                    height: Math.max(1, canvasSize.height * Math.min(previewHeight / canvasSize.height, previewContainerWidth ? (previewContainerWidth / canvasSize.width) : Infinity)),
+                    width: previewDrawWidth,
+                    height: previewDrawHeight,
                     display: 'block',
                     borderRadius: 8,
                     background: 'transparent',
                     position: 'relative',
                     zIndex: 2,
                   }}
-                />
+          />
               </div>
-              <div
-                role="presentation"
-                onMouseDown={(e) => {
-                  previewResizeRef.current = { startY: e.clientY, startH: previewHeight };
-                }}
-                style={{ height: 8, cursor: 'row-resize' }}
-              />
+              {(workspaceDockMode === 'top' || workspaceDockMode === 'bottom') && (
+                <div
+                  role="presentation"
+                  onMouseDown={(e) => {
+                    previewResizeRef.current = { startY: e.clientY, startH: previewHeight };
+                  }}
+                  style={{ height: 8, cursor: 'row-resize' }}
+          />
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Media Row */}
         <div className="right section-block media-block" style={{ opacity: renderLocked ? 0.35 : (hasAudio ? 1 : 0.6), pointerEvents: renderLocked ? 'none' : 'auto' }}>
@@ -3483,7 +3729,7 @@ const App = () => {
                     transform: `rotate(${canvasPreset === 'portrait' ? 90 : 0}deg)`,
                     transition: 'transform 150ms ease',
                   }}
-                />
+          />
               </button>
               <button className="collapse-btn" type="button" onClick={() => toggleSection('audio')} aria-label="Toggle media">
                 <MaterialIcon name={collapsed.audio ? 'expand_more' : 'expand_less'} ariaHidden />
@@ -3580,7 +3826,7 @@ const App = () => {
                   hideBuiltInControls
                   hideCanvas
                   onAudioElement={(el) => { setAudioEl(el); }}
-                />
+          />
                 {!hasAudio && (
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, color: '#e7b77a', fontWeight: 700, textAlign: 'center' }}>
@@ -3662,7 +3908,7 @@ const App = () => {
                         window.addEventListener('mousemove', onMove);
                         window.addEventListener('mouseup', onUp);
                       }}
-                    />
+          />
                   </div>
                 </div>
               )}
@@ -3742,7 +3988,16 @@ const App = () => {
             </div>
             {layerDialogOpen && (
                 <div className="panel" style={{ marginTop: 10, padding: 12, background: selectedLayer ? hexToRgba(selectedLayer.color, 0.12) : 'var(--panel-alt)', borderColor: selectedLayer ? hexToRgba(selectedLayer.color, 0.35) : 'var(--border)' }}>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {layerDraft.type === 'spectrograph' && (
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                      <button className="pill-btn" type="button" onClick={() => setLayerEditorTab('type')} aria-pressed={layerEditorTab === 'type'}>Type</button>
+                      <button className="pill-btn" type="button" onClick={() => setLayerEditorTab('position')} aria-pressed={layerEditorTab === 'position'}>Position</button>
+                      <button className="pill-btn" type="button" onClick={() => setLayerEditorTab('appearance')} aria-pressed={layerEditorTab === 'appearance'}>Appearance</button>
+                      <button className="pill-btn" type="button" onClick={() => setLayerEditorTab('renderer')} aria-pressed={layerEditorTab === 'renderer'}>Renderer</button>
+                      <button className="pill-btn" type="button" onClick={() => setLayerEditorTab('analyzer')} aria-pressed={layerEditorTab === 'analyzer'}>Analyzer</button>
+                    </div>
+                  )}
+                  <div style={{ display: layerDraft.type === 'spectrograph' && (layerEditorTab === 'renderer' || layerEditorTab === 'analyzer') ? 'none' : 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Type
                       <select
@@ -3754,6 +4009,8 @@ const App = () => {
                           updateLayerDraftField({
                             type: nextType,
                             mode: nextType === 'spectrograph' ? (prev.mode as any) ?? 'bar' : undefined,
+                            vizType: nextType === 'spectrograph' ? (prev.vizType as any) ?? 'bar' : undefined,
+                            layout: nextType === 'spectrograph' ? (prev.layout as any) ?? 'straight' : undefined,
                             pathMode: nextType === 'spectrograph' ? (prev.pathMode as any) ?? 'straight' : undefined,
                             barCount: nextType === 'spectrograph' ? (prev.barCount ?? 96) : undefined,
                             barWidthPct: nextType === 'spectrograph' ? (prev.barWidthPct ?? 0.8) : undefined,
@@ -3764,6 +4021,36 @@ const App = () => {
                             averaging: nextType === 'spectrograph' ? (prev.averaging ?? 2) : undefined,
                             mirrorX: nextType === 'spectrograph' ? (prev.mirrorX ?? false) : undefined,
                             mirrorY: nextType === 'spectrograph' ? (prev.mirrorY ?? false) : undefined,
+                            mirror: nextType === 'spectrograph' ? (prev.mirror ?? true) : undefined,
+                            fftSize: nextType === 'spectrograph' ? (prev.fftSize ?? 2048) : undefined,
+                            smoothingTimeConstant: nextType === 'spectrograph' ? (prev.smoothingTimeConstant ?? 0.78) : undefined,
+                            minDecibels: nextType === 'spectrograph' ? (prev.minDecibels ?? -95) : undefined,
+                            maxDecibels: nextType === 'spectrograph' ? (prev.maxDecibels ?? -10) : undefined,
+                            paddingX: nextType === 'spectrograph' ? (prev.paddingX ?? 24) : undefined,
+                            paddingY: nextType === 'spectrograph' ? (prev.paddingY ?? 22) : undefined,
+                            centerYOffset: nextType === 'spectrograph' ? (prev.centerYOffset ?? 0) : undefined,
+                            baseRadiusRatio: nextType === 'spectrograph' ? (prev.baseRadiusRatio ?? 0.22) : undefined,
+                            backgroundColor: nextType === 'spectrograph' ? (prev.backgroundColor ?? '#050816') : undefined,
+                            trailAlpha: nextType === 'spectrograph' ? (prev.trailAlpha ?? 0.35) : undefined,
+                            colorMode: nextType === 'spectrograph' ? (prev.colorMode ?? 'gradient') : undefined,
+                            primaryColor: nextType === 'spectrograph' ? (prev.primaryColor ?? '#66f0ff') : undefined,
+                            secondaryColor: nextType === 'spectrograph' ? (prev.secondaryColor ?? '#6e4dff') : undefined,
+                            outlineEnabled: nextType === 'spectrograph' ? (prev.outlineEnabled ?? false) : undefined,
+                            glowEnabled: nextType === 'spectrograph' ? (prev.glowEnabled ?? true) : undefined,
+                            shadowEnabled: nextType === 'spectrograph' ? (prev.shadowEnabled ?? false) : undefined,
+                            glowBlur: nextType === 'spectrograph' ? (prev.glowBlur ?? 20) : undefined,
+                            shadowBlur: nextType === 'spectrograph' ? (prev.shadowBlur ?? 8) : undefined,
+                            lowCutoffPercent: nextType === 'spectrograph' ? (prev.lowCutoffPercent ?? 0) : undefined,
+                            highCutoffPercent: nextType === 'spectrograph' ? (prev.highCutoffPercent ?? 1) : undefined,
+                            intensity: nextType === 'spectrograph' ? (prev.intensity ?? 1.1) : undefined,
+                            responseCurve: nextType === 'spectrograph' ? (prev.responseCurve ?? 0.9) : undefined,
+                            radialSpin: nextType === 'spectrograph' ? (prev.radialSpin ?? 0) : undefined,
+                            barWidthScale: nextType === 'spectrograph' ? (prev.barWidthScale ?? 1) : undefined,
+                            barGap: nextType === 'spectrograph' ? (prev.barGap ?? 2) : undefined,
+                            minBarHeight: nextType === 'spectrograph' ? (prev.minBarHeight ?? 2) : undefined,
+                            lineWidth: nextType === 'spectrograph' ? (prev.lineWidth ?? 2) : undefined,
+                            dotSize: nextType === 'spectrograph' ? (prev.dotSize ?? 3) : undefined,
+                            solidFillAlpha: nextType === 'spectrograph' ? (prev.solidFillAlpha ?? 0.35) : undefined,
                             text: nextType === 'text' ? (prev.text ?? 'Text') : undefined,
                             font: nextType === 'text' ? (prev.font ?? 'Segoe UI') : undefined,
                             fontSize: nextType === 'text' ? (prev.fontSize ?? 12) : undefined,
@@ -3897,7 +4184,7 @@ const App = () => {
                           <select
                             className="pill-select"
                             value={layerDraft.pathMode ?? 'straight'}
-                            onChange={(e) => updateLayerDraftField({ pathMode: e.target.value as 'straight' | 'circular' })}
+                            onChange={(e) => updateLayerDraftField({ pathMode: e.target.value as 'straight' | 'circular', layout: e.target.value === 'circular' ? 'circle' : 'straight' } as unknown as Partial<LayerConfig>)}
                           >
                             <option value="straight">Straight</option>
                             <option value="circular">Circular</option>
@@ -3966,7 +4253,10 @@ const App = () => {
                           <select
                             className="pill-select"
                         value={layerDraft.mode ?? 'bar'}
-                        onChange={(e) => updateLayerDraftField({ mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' })}
+                        onChange={(e) => {
+                          const nextMode = e.target.value as 'bar' | 'line' | 'solid' | 'dots';
+                          updateLayerDraftField({ mode: nextMode, vizType: nextMode === 'dots' ? 'dot' : nextMode } as unknown as Partial<LayerConfig>);
+                        }}
                       >
                         <option value="bar">Bar</option>
                         <option value="line">Line</option>
@@ -4289,6 +4579,175 @@ const App = () => {
                       </>
                     )}
                   </div>
+                  {layerDraft.type === 'spectrograph' && layerEditorTab === 'renderer' && (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Layout
+                        <select className="pill-select" value={layerDraft.layout ?? 'straight'} onChange={(e) => updateLayerDraftField({ layout: e.target.value as 'straight' | 'circle' })}>
+                          <option value="straight">Straight</option>
+                          <option value="circle">Circle</option>
+                        </select>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Visualizer Type
+                        <select className="pill-select" value={layerDraft.vizType ?? 'bar'} onChange={(e) => updateLayerDraftField({ vizType: e.target.value as any })}>
+                          <option value="bar">Bar</option>
+                          <option value="line">Line</option>
+                          <option value="dot">Dot</option>
+                          <option value="solid">Solid</option>
+                        </select>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Padding X
+                        <input type="range" min={0} max={220} step={1} value={layerDraft.paddingX ?? 24} onChange={(e) => updateLayerDraftField({ paddingX: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.paddingX ?? 24)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Padding Y
+                        <input type="range" min={0} max={220} step={1} value={layerDraft.paddingY ?? 22} onChange={(e) => updateLayerDraftField({ paddingY: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.paddingY ?? 22)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Center Y Offset
+                        <input type="range" min={-0.45} max={0.45} step={0.01} value={layerDraft.centerYOffset ?? 0} onChange={(e) => updateLayerDraftField({ centerYOffset: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.centerYOffset ?? 0).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Base Radius Ratio
+                        <input type="range" min={0.05} max={0.48} step={0.01} value={layerDraft.baseRadiusRatio ?? 0.22} onChange={(e) => updateLayerDraftField({ baseRadiusRatio: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.baseRadiusRatio ?? 0.22).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Color Mode
+                        <select className="pill-select" value={layerDraft.colorMode ?? 'gradient'} onChange={(e) => updateLayerDraftField({ colorMode: e.target.value as 'gradient' | 'solid' })}>
+                          <option value="gradient">Gradient</option>
+                          <option value="solid">Solid</option>
+                        </select>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Primary Color
+                        <input type="color" value={layerDraft.primaryColor ?? '#66f0ff'} onChange={(e) => updateLayerDraftField({ primaryColor: e.target.value })} />
+                      </label>
+                      {(layerDraft.colorMode ?? 'gradient') === 'gradient' && (
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Secondary Color
+                          <input type="color" value={layerDraft.secondaryColor ?? '#6e4dff'} onChange={(e) => updateLayerDraftField({ secondaryColor: e.target.value })} />
+                        </label>
+                      )}
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Background
+                        <input type="color" value={layerDraft.backgroundColor ?? '#050816'} onChange={(e) => updateLayerDraftField({ backgroundColor: e.target.value })} />
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Trail Alpha
+                        <input type="range" min={0} max={1} step={0.01} value={layerDraft.trailAlpha ?? 0.35} onChange={(e) => updateLayerDraftField({ trailAlpha: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.trailAlpha ?? 0.35).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Low Cutoff %
+                        <input type="range" min={0} max={0.95} step={0.01} value={layerDraft.lowCutoffPercent ?? 0} onChange={(e) => updateLayerDraftField({ lowCutoffPercent: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{((layerDraft.lowCutoffPercent ?? 0) * 100).toFixed(0)}%</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        High Cutoff %
+                        <input type="range" min={0.05} max={1} step={0.01} value={layerDraft.highCutoffPercent ?? 1} onChange={(e) => updateLayerDraftField({ highCutoffPercent: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{((layerDraft.highCutoffPercent ?? 1) * 100).toFixed(0)}%</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Intensity
+                        <input type="range" min={0.1} max={4} step={0.05} value={layerDraft.intensity ?? 1.1} onChange={(e) => updateLayerDraftField({ intensity: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.intensity ?? 1.1).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Response Curve
+                        <input type="range" min={0.2} max={2} step={0.05} value={layerDraft.responseCurve ?? 0.9} onChange={(e) => updateLayerDraftField({ responseCurve: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.responseCurve ?? 0.9).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Mirror
+                        <button className="pill-btn" type="button" aria-pressed={!!layerDraft.mirror} onClick={() => updateLayerDraftField({ mirror: !layerDraft.mirror })}>
+                          <span>{layerDraft.mirror ? 'On' : 'Off'}</span>
+                        </button>
+                      </label>
+                      {(layerDraft.layout ?? 'straight') === 'circle' && (
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Radial Spin
+                          <input type="range" min={0} max={2} step={0.01} value={layerDraft.radialSpin ?? 0} onChange={(e) => updateLayerDraftField({ radialSpin: Number(e.target.value) })} />
+                          <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.radialSpin ?? 0).toFixed(2)}</span>
+                        </label>
+                      )}
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Bar Width Scale
+                        <input type="range" min={0.25} max={2.5} step={0.05} value={layerDraft.barWidthScale ?? 1} onChange={(e) => updateLayerDraftField({ barWidthScale: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.barWidthScale ?? 1).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Bar Gap
+                        <input type="range" min={0} max={24} step={0.5} value={layerDraft.barGap ?? 2} onChange={(e) => updateLayerDraftField({ barGap: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.barGap ?? 2).toFixed(1)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Min Bar Height
+                        <input type="range" min={0} max={64} step={1} value={layerDraft.minBarHeight ?? 2} onChange={(e) => updateLayerDraftField({ minBarHeight: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.minBarHeight ?? 2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Line Width
+                        <input type="range" min={0.5} max={16} step={0.1} value={layerDraft.lineWidth ?? 2} onChange={(e) => updateLayerDraftField({ lineWidth: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.lineWidth ?? 2).toFixed(1)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Dot Size
+                        <input type="range" min={1} max={20} step={0.5} value={layerDraft.dotSize ?? 3} onChange={(e) => updateLayerDraftField({ dotSize: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.dotSize ?? 3).toFixed(1)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Solid Fill Alpha
+                        <input type="range" min={0.05} max={1} step={0.01} value={layerDraft.solidFillAlpha ?? 0.35} onChange={(e) => updateLayerDraftField({ solidFillAlpha: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.solidFillAlpha ?? 0.35).toFixed(2)}</span>
+                      </label>
+                    </div>
+                  )}
+                  {layerDraft.type === 'spectrograph' && layerEditorTab === 'analyzer' && (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        FFT Size
+                        <select className="pill-select" value={String(layerDraft.fftSize ?? 2048)} onChange={(e) => updateLayerDraftField({ fftSize: Number(e.target.value) as 256 | 512 | 1024 | 2048 | 4096 | 8192 })}>
+                          <option value="256">256</option>
+                          <option value="512">512</option>
+                          <option value="1024">1024</option>
+                          <option value="2048">2048</option>
+                          <option value="4096">4096</option>
+                          <option value="8192">8192</option>
+                        </select>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Smoothing
+                        <input type="range" min={0} max={0.99} step={0.01} value={layerDraft.smoothingTimeConstant ?? 0.78} onChange={(e) => updateLayerDraftField({ smoothingTimeConstant: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.smoothingTimeConstant ?? 0.78).toFixed(2)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Min dB
+                        <input type="range" min={-140} max={-20} step={1} value={layerDraft.minDecibels ?? -95} onChange={(e) => updateLayerDraftField({ minDecibels: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.minDecibels ?? -95)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Max dB
+                        <input type="range" min={-80} max={0} step={1} value={layerDraft.maxDecibels ?? -10} onChange={(e) => updateLayerDraftField({ maxDecibels: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.maxDecibels ?? -10)}</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Low Cut (Hz)
+                        <input type="range" min={10} max={500} value={layerDraft.lowCutHz ?? 40} onChange={(e) => updateLayerDraftField({ lowCutHz: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.lowCutHz ?? 40)} Hz</span>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        High Cut (Hz)
+                        <input type="range" min={2000} max={20000} step={100} value={layerDraft.highCutHz ?? 16000} onChange={(e) => updateLayerDraftField({ highCutHz: Number(e.target.value) })} />
+                        <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.highCutHz ?? 16000)} Hz</span>
+                      </label>
+                    </div>
+                  )}
                   <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button className="pill-btn" type="button" onClick={undoLayerDraft}>Undo</button>
                     <button className="pill-btn" type="button" onClick={redoLayerDraft}>Redo</button>
@@ -4328,7 +4787,7 @@ const App = () => {
                       return { ...prev, timelineStart: safeStart, timelineEnd: Math.max(safeStart + 0.05, end) };
                     });
                   }}
-                />
+          />
                 <label style={{ fontWeight: 600 }}>Timeline End</label>
                 <input
                   type="number"
@@ -4344,7 +4803,7 @@ const App = () => {
                       return { ...prev, timelineEnd: Math.max(start + 0.05, safeEnd) };
                     });
                   }}
-                />
+          />
                 <label style={{ fontWeight: 600 }}>Fill Method</label>
                 <select
                   className="pill-select"
@@ -4370,7 +4829,7 @@ const App = () => {
                       return { ...prev, trimStart: safeStart, trimEnd: Math.max(safeStart + 0.05, end) };
                     });
                   }}
-                />
+          />
                 <label style={{ fontWeight: 600 }}>Trim End</label>
                 <input
                   type="number"
@@ -4386,7 +4845,7 @@ const App = () => {
                       return { ...prev, trimEnd: Math.max(start + 0.05, safeEnd) };
                     });
                   }}
-                />
+          />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10, marginTop: 14 }}>
                 <label style={{ fontWeight: 600 }}>Hue</label>
@@ -4474,7 +4933,7 @@ const App = () => {
                     src={assetHref('ui/vizmatic_setupWizard_logo.png')}
                     alt="vizmatic logo"
                     style={{ width: '100%', maxWidth: 190, height: 'auto', display: 'block', objectFit: 'contain' }}
-                  />
+          />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ background: 'var(--panel)', color: 'var(--text)', borderRadius: 8, padding: 12, border: '1px solid var(--border)' }}>
@@ -4504,7 +4963,7 @@ const App = () => {
                       onChange={(e) => setLicenseKeyInput(e.target.value)}
                       placeholder="Enter product key provided during purchase or in confirmation email."
                       style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: 8, textAlign: 'left', border: '1px solid var(--border)', background: 'var(--panel-alt)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
-                    />
+          />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, fontSize: 10, color: 'var(--text-muted)' }}>
                     <div style={{ fontWeight: 700, fontSize: 16, width: '20%',verticalAlign: 'bottom', textAlign: 'right', color: 'var(--text)' }}>Machine ID</div>
@@ -4516,7 +4975,7 @@ const App = () => {
                       readOnly
                       value={machineId ? `${machineId.slice(0, 8)}-${machineId.slice(-8)}` : 'Loading...'}
                       style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel-alt)', color: 'var(--text)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}
-                    />
+          />
                     <button
                       className="pill-btn pill-btn--icon"
                       type="button"
@@ -4652,7 +5111,6 @@ const App = () => {
         )}
 
       </div>
-      </div>
 
       {isRendering && (
         <div
@@ -4718,6 +5176,27 @@ const App = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => startRenameClip(contextMenu.path, contextMenu.index)}>Rename</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipEdit(contextMenu.id, contextMenu.path, contextMenu.index)}>Edit</button>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 6 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Fill Method</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+                  {(['loop', 'pingpong', 'stretch'] as const).map((method) => {
+                    const active = getClipFillMethod(contextMenu.id) === method;
+                    const label = method === 'pingpong' ? 'Ping-Pong' : (method === 'loop' ? 'Loop' : 'Stretch');
+                    return (
+                      <button
+                        key={method}
+                        className="pill-btn pill-btn--compact"
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setClipFillMethodFromContext(contextMenu.id, method)}
+                        style={active ? { borderColor: 'var(--accent)', boxShadow: 'inset 0 0 0 1px var(--accent)' } : undefined}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipAddToLibrary(contextMenu.path)}>Add to Library</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => duplicateClipAt(contextMenu.index)}>Duplicate</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipInfo(contextMenu.path)}>File Info</button>

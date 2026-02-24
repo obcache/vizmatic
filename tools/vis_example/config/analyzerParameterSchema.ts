@@ -1,0 +1,53 @@
+import type { ParameterDefinition } from "../types/parameters";
+
+export const analyzerParameterSchema: ParameterDefinition[] = [
+  {
+    key: "fftSize",
+    label: "FFT Size",
+    type: "select",
+    defaultValue: "2048",
+    options: [
+      { label: "256", value: "256" },
+      { label: "512", value: "512" },
+      { label: "1024", value: "1024" },
+      { label: "2048", value: "2048" },
+      { label: "4096", value: "4096" },
+      { label: "8192", value: "8192" },
+    ],
+    tab: "Analyzer",
+    category: "FFT / Response",
+  },
+  {
+    key: "smoothingTimeConstant",
+    label: "Smoothing",
+    type: "number",
+    defaultValue: 0.78,
+    min: 0,
+    max: 0.99,
+    step: 0.01,
+    tab: "Analyzer",
+    category: "FFT / Response",
+  },
+  {
+    key: "minDecibels",
+    label: "Min dB",
+    type: "number",
+    defaultValue: -95,
+    min: -140,
+    max: -20,
+    step: 1,
+    tab: "Analyzer",
+    category: "Decibel Window",
+  },
+  {
+    key: "maxDecibels",
+    label: "Max dB",
+    type: "number",
+    defaultValue: -10,
+    min: -80,
+    max: 0,
+    step: 1,
+    tab: "Analyzer",
+    category: "Decibel Window",
+  },
+];
